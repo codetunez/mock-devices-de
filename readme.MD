@@ -1,0 +1,452 @@
+# mock-devices DE (Docker Edition) - Beta
+Use mock-devices to create fake/mock/simulated devices that connect to an Azure IoT Hub. The devices can send and receive data like a physical device would.
+
+This edition of mock-devices enables the mock-devices engine to run in a Docker container. To use the desktop version, please visit the [mock-devices](http://github.com/code-tunez/mock-devices) gihub repo. State files are fully compatiable between the desktop and DE versions of mock-devices. Use the desktop version to generate a state file and run on your desktop in the background using the DE version. 
+
+## Get and run the public Docker Hub version 
+Install [Docker](https://docs.docker.com/install/) and execute the following commands.
+
+```
+docker pull codetunez/mock-devices
+
+docker run -p 3300:9100 -d codetunez/mock-devices
+```
+
+Change `3300` to desired value. To build the container, follow developer instructions at the end of readme.
+
+**Use an exisiting state file.**
+
+Once the container is running
+
+Load your state\
+`curl -d "@<state file>" -H "Content-Type: application/json" -X POST http://127.0.0.1:3300/api/state`
+
+Start all devices\
+`curl http://127.0.0.1:3300/api/devices/start`
+
+See the console\
+`docker logs -f <container id>`
+
+
+# API
+
+mock-devices DE has several resource endpoints to manage the simulation
+
+The following endpoints deal with the core of creating, running and updating devices as well as adding capabilties to send and recieve data.
+
+- /api/device - CRUD for a device including start/stopping the device
+- /api/devices - Gets the list of current devices and starts/stops all devices
+
+The following endpoints deal with the service state and the misc simulation variables
+
+- /api/state - Gets or sets the current state machine and simulation config
+- /api/simulation - Gets or sets the simulation configuration. All devices restart required
+
+The following endpoint deals with reference data
+
+- /api/sensors - Gets a list of fake sensors that can be added to a device to send simulated data
+
+# Objects
+## **state** object
+| property   | type   | usage                                               |
+|------------|--------|-----------------------------------------------------|
+| devices    | array  | The list of **device** objects in the state machine |
+| simulation | object | The current configuration for the simulation        |
+
+EXAMPLE
+
+```
+{
+    "devices" : []
+    "simulation" : {}
+}
+```
+
+**POST**
+
+*state object* \
+\<devices> `curl -d "<state>" -H "Content-Type: application/json" -X POST http://127.0.0.1:3300/api/state`\
+*only simulation object* \
+\<devices> `curl -d "<simulation>" -H "Content-Type: application/json" -X POST http://127.0.0.1:3300/api/simulation`
+
+**GET**
+
+**state object**\
+\<state> `curl http://127.0.0.1:3300/api/state`\
+**only devices array** \
+\<devices> `curl http://127.0.0.1:3300/api/devices`\
+**only simulation object** \
+\<simulation> `curl http://127.0.0.1:3300/api/simulation`
+
+**Transport - All Devices**
+
+**GET**
+
+\<devices> `curl http://127.0.0.1:3300/api/devices/start`\
+\<devices> `curl http://127.0.0.1:3300/api/devices/stop`
+
+---
+
+## **device** object
+The device object defines all of the device's inputs/outputs and it's connection configuration.
+
+| property      | type    | usage                                                                                        |
+|---------------|---------|----------------------------------------------------------------------------------------------|
+| _id           | string  | A unique id for this device. Needs to be unique for the simulation i.e. a GUID               |
+| running       | boolean | Readonly. Get the running state of the device. If true the device will interact with the Hub |
+| comms         | array   | The list of **comm** objects                                                                 |
+| configuration | object  | The connection information of a device                                                       |
+
+Example
+
+```
+{
+    "_id: "1234",
+    "running: false
+    "comms" : []
+    "configuration" : {}
+}
+```
+
+**POST**\
+\<device> `curl -d "<configuration>" -H "Content-Type: application/json"  -X POST http://127.0.0.1:8080/api/device/new`
+
+**DELETE**\
+\<devices> `curl -X DELETE http://127.0.0.1:8080/api/device/<device id>`
+
+**PUT**\
+*can only update configuration*\
+\<device> `curl -d "<configuration>" -H "Content-Type: application/json" -X POST http://127.0.0.1:8080/api/<device id>`
+
+**GET**\
+\<device> `curl http://127.0.0.1:8080/api/device/<device id>`
+
+**Transport - This device only**
+
+**GET**\
+\<device> `curl http://127.0.0.1:8080/api/device/<device id>/start`\
+\<device> `curl http://127.0.0.1:8080/api/device/<device id>/stop`
+
+## **configuration** object
+Defines the connection configuration of the device and the initial create profile. Changes here require device restart
+
+| property         | type    | usage                                                                              |
+|------------------|---------|------------------------------------------------------------------------------------|
+| _kind            | string  | 'dps' \|'template'|\|'hub'                                                         |
+| deviceId         | string  | Device id in IoT Hub                                                               |
+| scopeId          | string  | DPS scope ID                                                                       |
+| dpsPayload       | object  | JSON payload as supported by DPS/Hub build                                         |
+| sasKey           | string  | Device SaS key                                                                     |
+| isMasterKey      | boolean | 'true' \|'false'. If true, device id is ignored and issued during DPS registration |
+| mockDeviceName   | string  | Firendly name used by the GUI                                                      |
+| connectionString | string? | Uses Azure IoT Hub connection string if _kind is hub                               |
+
+EXAMPLE
+
+```
+{
+ "_kind": "dps"
+ "deviceId" : "any-device-id"
+ "scopeId": "00SED0045",
+ "dpsPayload": {},
+ "sasKey": "3249cxvnkj43579fdsg+=DFS90832",
+ "isMasterKey": false,
+ "mockDeviceName": "My Device",
+ "mockDeviceCount": 1,
+}
+```
+
+This object can only be updated with the device object POST and PUT API
+
+## **comm** object
+A _communication_ or comm object is used to define the type of input/output the device will do. There are 3 kinds of comm objects. Reported (send data), Desired (receive data) and Method (execute). The device does not have to be stopped to add or remove comm objects except methods
+
+#### This is how to use the comm object to define a data send property 
+
+| property       | type    | usage                                                                                                                        |
+|----------------|---------|------------------------------------------------------------------------------------------------------------------------------|
+| _id            | string  | A unique id for this property. Needs to be unique for the simulation i.e. a GUID                                             |
+| _type          | string  | 'property' \|'method'. Msg/Events and Twins are properties. Primarilty used by the GUI                                       |
+| color          | string? | Only used by GUI                                                                                                             |
+| enabled        | boolean | Only honored when device is in a runloop. Updating a device will send value immediately                                      |
+| interface      | string  | Name the comm property. Not supported                                                                                        |
+| string         | boolean | *true* for values to be treated as strings i.e. text and dates. *false* for all other types i.e. object, arrays and booleans |
+| value          | any     | The current value of the property. Update this to send a new value (PUT) for the device. Supports AUTO_* in a runloop        |
+| sdk            | string  | Determine how to send the device data. *msg* for SDK event/message API or *twin* for SDK Device Twin API                     |
+| version        | number  | Readonly. Lifecycle count of Twin updates for this device (only for Desired fields)                                          |
+| mock           | object? | See later                                                                                                                    |
+| propertyObject | object  | See later                                                                                                                    |
+| type           | object  | See later                                                                                                                    |
+| runloop        | object? | See later                                                                                                                    |
+
+
+#### mock object
+To use a mock sensor, assign a \<sensor> to the mock property and change the mock value in the type object
+
+GET\
+\<sensors> `curl http://127.0.0.1:8080/api/sensors`\
+\<sensor> `curl http://127.0.0.1:8080/api/sensors/<type>`
+
+
+#### projectObject object
+The propertyObject defines if the value field is literal or a JSON object. The latter is the second property in this object should must be stringified. Supports AUTO_*
+
+| property  | type   | usage                   |
+|-----------|--------|-------------------------|
+| type      | string | 'default' \|'templated' |
+| templated | string | JSON object (optional)  |
+
+#### type object
+The type defines how to comm object binds to the SDK
+
+| property  | type   | usage                                                                                                                                |
+|-----------|--------|--------------------------------------------------------------------------------------------------------------------------------------|
+| mock      | any    | use _false_ to switch off mock sensor. Value is a sensor when mock sensor is on                                                      |
+| direction | string | 'd2c' \|'c2d'. Used to bind the comm object to the SDK. Honors sdk type and sets up the property to be read/desired or send/reported |
+
+#### runloop object
+Use the runloop object to send the value on a timed loop.
+
+| property | type    | usage                                             |
+|----------|---------|---------------------------------------------------|
+| include  | boolean | _false_ to not include this property in a runloop |
+| unit     | string  | 'secs' \|'mins'                                   |
+| value    | integer | Honors unit                                       |
+
+EXAMPLE
+
+```
+{
+    "_id": "b07f4260-df7d-4d79-8f2d-02cf9d8c5b1f",
+    "_type": "property",
+    "name": "d2cProperty_1d57",
+    "color": "#333333",
+    "enabled": false,
+    "interface": "(single interface only)",
+    "string": false,
+    "value": 0,
+    "sdk": "msg",
+    "propertyObject": {
+        "type": "default"
+    },
+    "version": 0,
+    "type": {
+        "mock": false,
+        "direction": "d2c"
+    },
+    "runloop": {
+        "include": false,
+        "unit": "secs",
+        "value": 15
+    }
+}
+```
+
+**POST**\
+*create the comm with defaults*\
+\<device> `curl -d "{type:'d2c'}" -H "Content-Type: application/json" -X POST http://127.0.0.1:8080/api/device/<device id>/property/new`\
+*create the default mock sensor and assign to comm*\
+\<device> `curl -X POST http://127.0.0.1:8080/api/device/<device id>/property/<property id/mock/new`
+
+**PUT**\
+\<device> `curl -d "{comm}" -H "Content-Type: application/json" -X POST http://127.0.0.1:8080/api/device/<device id>/property/<property id>`
+
+**DELETE**\
+\<devices> `curl -X DELETE http://127.0.0.1:8080/api/device/<device id>/property/<property id>`
+
+**GET**\
+\<devices> `curl http://127.0.0.1:8080/api/device/<device id>/property/<property id>`
+
+#### This is how to use the comm object to define a data receive property
+runloop not required
+
+EXAMPLE
+
+```
+{
+    "_id": "61cdc84c-20e8-4066-9e39-22a3868719bf",
+    "_type": "property",
+    "enabled": true,
+    "name": "c2dProperty_a8e3",
+    "color": "#383a1e",
+    "interface": "(single interface only)",
+    "string": false,
+    "value": 0,
+    "sdk": "twin",
+    "propertyObject": {
+        "type": "default"
+    },
+    "version": 0,
+    "type": {
+        "mock": false,
+        "direction": "c2d"
+    }
+}
+```
+**POST**\
+*create the comm with defaults*\
+\<device> `curl -d "{type:'c2d'}" -H "Content-Type: application/json" -X POST http://127.0.0.1:8080/api/device/<device id>/property/new`\
+
+**PUT**\
+*update comm and not value*\
+\<device> `curl -d "{comm}" -H "Content-Type: application/json" -X POST http://127.0.0.1:8080/api/device/<device id>/property/<property id>`\
+*update comm and value*\
+\<device> `curl -d "{comm}" -H "Content-Type: application/json" -X POST http://127.0.0.1:8080/api/device/<device id>/property/<property id>/value`
+
+**DELETE**\
+\<devices> `curl -X DELETE http://127.0.0.1:8080/api/device/<device id>/property/<property id>`
+
+**GET**\
+\<devices> `curl http://127.0.0.1:8080/api/device/<device id>/property/<property id>`
+
+
+#### This is how to use the comm object to define a method property 
+
+| property       | type    | usage                                                                                   |
+|----------------|---------|-----------------------------------------------------------------------------------------|
+| _id            | string  | A unique id for this property. Needs to be unique for the simulation i.e. a GUID        |
+| _type          | string  | 'property' \|'method'. Msg/Events and Twins are properties. Primarilty used by the GUI  |
+| color          | string? | Only used by GUI                                                                        |
+| enabled        | boolean | Only honored when device is in a runloop. Updating a device will send value immediately |
+| interface      | string  | Name the comm property. Not supported                                                   |
+| status         | integer | HTTP status code                                                                        |
+| receivedParams | string  | The parameters sent to the device from the caller                                       |
+| asProperty     | boolean | Send the result as a reported Twin reported as well                                     |
+| payload        | string  | The result JSON                                                                         |
+
+EXAMPLE
+
+```
+{
+    "_id": "27dfec16-128a-4cf8-bbba-89263c51f4d3",
+    "_type": "method",
+    "enabled": true,
+    "name": "method47a2",
+    "color": "#3a1e1e",
+    "interface": "(single interface only)",
+    "status": 200,
+    "receivedParams": null,
+    "asProperty": false,
+    "payload": "{\n  \"result\": \"OK\"\n}"
+}
+```
+**POST**\
+*create the comm with defaults*\
+\<device> `curl -X POST http://127.0.0.1:8080/api/device/<device id>/method/new`
+
+**PUT**\
+\<device> `curl -d "{comm}" -H "Content-Type: application/json" -X POST http://127.0.0.1:8080/api/device/<device id>/method/<method id>`
+
+**DELETE**\
+\<devices> `curl -X DELETE http://127.0.0.1:8080/api/device/<device id>/method/<method id>`
+
+**GET**\
+\<devices> `curl http://127.0.0.1:8080/api/device/<device id>/<method>/<method id>`
+
+# Sample device object JSON
+```
+{
+    "comms": [
+        {
+            "_id": "b07f4260-df7d-4d79-8f2d-02cf9d8c5b1f",
+            "_type": "property",
+            "name": "d2cProperty_1d57",
+            "color": "#333333",
+            "enabled": false,
+            "interface": "(single interface only)",
+            "string": false,
+            "value": 0,
+            "sdk": "msg",
+            "propertyObject": {
+                "type": "default"
+            },
+            "version": 0,
+            "type": {
+                "mock": true,
+                "direction": "d2c"
+            },
+            "runloop": {
+                "include": true,
+                "unit": "secs",
+                "value": 15
+            },
+            "mock": {
+                "_id": "2400337d-46dd-4885-857f-306bf4761e75",
+                "_hasState": false,
+                "_type": "random",
+                "_value": 0,
+                "variance": 3,
+                "init": 0,
+                "_resx": {
+                    "init": "Initial",
+                    "variance": "Length"
+                }
+            }
+        },
+        {
+            "_id": "61cdc84c-20e8-4066-9e39-22a3868719bf",
+            "_type": "property",
+            "enabled": true,
+            "name": "c2dProperty_a8e3",
+            "color": "#383a1e",
+            "interface": "(single interface only)",
+            "string": false,
+            "value": 0,
+            "sdk": "twin",
+            "propertyObject": {
+                "type": "default"
+            },
+            "version": 0,
+            "type": {
+                "mock": false,
+                "direction": "c2d"
+            }
+        },
+        {
+            "_id": "27dfec16-128a-4cf8-bbba-89263c51f4d3",
+            "_type": "method",
+            "enabled": true,
+            "name": "method47a2",
+            "color": "#3a1e1e",
+            "interface": "(single interface only)",
+            "status": 200,
+            "receivedParams": null,
+            "asProperty": false,
+            "payload": "{\n  \"result\": \"OK\"\n}"
+        }
+    ],
+    "configuration": {
+        "_kind": "dps",
+        "deviceId": "any-device-id",
+        "scopeId": "00SED0045",
+        "dpsPayload": {},
+        "sasKey": "3249cxvnkj43579fdsg+=DFS90832",
+        "isMasterKey": false,
+        "mockDeviceName": "My Device",
+        "mockDeviceCount": 1
+    },
+    "_id": "any-device-id",
+    "running": false
+}
+```
+
+# Developer - Node or Docker
+Clone this repo and from the command line
+
+**Node**
+
+Install and Build
+```
+npm install && npm run build
+
+node _dist/start.js
+```
+
+**Docker**
+
+Building the container\
+`docker build -t md-docker .`
+
+Run the container\
+`docker run -p <port>:9100 -d md-docker`
+
