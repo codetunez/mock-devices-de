@@ -491,8 +491,10 @@ An X,Y,Z object
 An Array
 ```
 ['AUTO_INTEGER', 5, 'AUTO_DOUBLE', 999]
-A Map - Needs static keys (Beta)
+```
 
+A Map - Needs static keys (Beta)
+```
 {
   "map": {
     "mapKey1": "AUTO_STRING",
