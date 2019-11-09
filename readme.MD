@@ -1,7 +1,9 @@
 # mock-devices DE (Docker Edition) - Beta
 Use mock-devices to create fake/mock/simulated devices that connect to an Azure IoT Hub. The devices can send and receive data like a physical device would.
 
-This edition of mock-devices enables the mock-devices engine to run in a Docker container. To use the desktop version, please visit the [mock-devices](http://github.com/codetunez/mock-devices) gihub repo. State files are fully compatiable between the desktop and DE versions of mock-devices. Use the desktop version to generate a state file and run on your desktop in the background using the DE version. 
+This edition of mock-devices enables the mock-devices engine to run in a Docker container. To use the desktop version, please visit the [mock-devices](http://github.com/codetunez/mock-devices) gihub repo. State files are fully compatiable between the desktop and DE versions of mock-devices. Use the desktop version to generate a state file and run on your desktop in the background using the DE version.
+
+A single state file has a maximum of 1,000 devices. To increase the number of devices run multiple containers
 
 ## Get and run the public Docker Hub version 
 Install [Docker](https://docs.docker.com/install/) and execute the following commands.
@@ -246,7 +248,7 @@ EXAMPLE
 *create the comm with defaults*\
 \<device> `curl -d "{type:'d2c'}" -H "Content-Type: application/json" -X POST http://127.0.0.1:8080/api/device/<device id>/property/new`\
 *create the default mock sensor and assign to comm*\
-\<device> `curl -X POST http://127.0.0.1:8080/api/device/<device id>/property/<property id/mock/new`
+\<device> `curl -X POST http://127.0.0.1:8080/api/device/<device id>/property/<property id>/mock/new`
 
 **PUT**\
 \<device> `curl -d "{comm}" -H "Content-Type: application/json" -X POST http://127.0.0.1:8080/api/device/<device id>/property/<property id>`
@@ -427,6 +429,76 @@ EXAMPLE
     },
     "_id": "any-device-id",
     "running": false
+}
+```
+
+# Macros and AUTO values
+AUTO values are macros that are replaced with real (random) values when the device sends its data. They can be used in value fields and complex payloads (for sending random data on the leaf nodes) Replace AUTO string with a static value if the feature is not required.
+
+Complex values must be authored using JSON so use the macro as a string (see examples). When using AUTOs, the property's type will be replaced. See the following.
+
+- AUTO_STRING - Use a random word from 'random-words' library
+- AUTO_BOOLEAN - Use a random true or false
+- AUTO_INTEGER - Use a random number
+- AUTO_LONG - Use a random number
+- AUTO_DOUBLE - Use a random number with precision
+- AUTO_FLOAT - Use a random number with precision
+- AUTO_DATE - Use now() ISO 8601 format
+- AUTO_DATETIME - Use now() ISO 8601 format
+- AUTO_TIME - Use now() ISO 8601 format
+- AUTO_DURATION - Use now() ISO 8601 format
+- AUTO_GEOPOINT - Use a random lat/long object
+- AUTO_VECTOR - Use a random x,y,z
+- AUTO_MAP - Use empty HashMap
+- AUTO_ENUM/* - Use a random Enum value (See below)
+- AUTO_VALUE - Use the last user suppllied or mock sensor value. Honors String setting.
+
+Enum support is possible by extending the macro to include the list of values. Values can only be integers or strings. Enums use the JavaScript style arrays i.e. [1,0] or ['foo','bar'] Append this to the end of an Enum AUTO like ...
+
+```
+AUTO_ENUM/['foo','bar']
+```
+The default geo location is London, UK. This can be changed in the Simulation object
+
+Complex Examples
+A JSON with AUTO values and statics
+
+```
+{
+  "complexObject": {
+    "nestedObj": {
+      "nestedObj": {
+        "param3": "AUTO_BOOLEAN"
+      },
+      "param1": "AUTO_INTEGER",
+      "param2": "Hello World!"
+    },
+    "param1": "AUTO_VALUE",
+    "param2": "AUTO_STRING",
+    "param3": true
+  }
+}
+```
+
+An X,Y,Z object
+```
+{
+  "x": "AUTO_INTEGER",
+  "y": "AUTO_INTEGER",
+  "z": 150
+}
+```
+An Array
+```
+['AUTO_INTEGER', 5, 'AUTO_DOUBLE', 999]
+A Map - Needs static keys (Beta)
+
+{
+  "map": {
+    "mapKey1": "AUTO_STRING",
+    "mapKey2": "AUTO_STRING",
+    "mapKey3": "AUTO_STRING"
+  }
 }
 ```
 
