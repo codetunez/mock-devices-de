@@ -249,6 +249,11 @@ export class MockDevice {
 
                     this.iotHubDevice.client.getTwin((err, twin) => {
 
+                        if (err) {
+                            this.messageService.sendConsoleUpdate(MSG_HUB_EVENT + "[" + this.device._id + "] NEED TO REBOOT - TWIN ERROR: " + err.message);
+                            this.processMockDevicesCMD(this.CMD_REBOOT);
+                        }
+
                         // desired properties are cached
                         twin.on('properties.desired', ((delta) => {
                             if (!this.CONNECT_RESTART) { Object.assign(this.twinDesiredPayloadRead, delta); }
