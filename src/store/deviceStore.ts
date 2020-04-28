@@ -20,13 +20,21 @@ export class DeviceStore {
 
     private liveUpdatesService: MessageService = null;
 
-    private simulationStore = new SimulationStore();
-    private simColors = this.simulationStore.get()["colors"];
+    private simulationStore = null;
+    private simColors = null;
+    private bulkRun = null;
 
     constructor(messageService: MessageService) {
+        this.liveUpdatesService = messageService;
+        this.init();
+    }
+
+    public init() {
+        this.simulationStore = new SimulationStore();
         this.store = new AssociativeStore();
         this.sensorStore = new SensorStore();
-        this.liveUpdatesService = messageService;
+        this.simColors = this.simulationStore.get()["colors"];
+        this.bulkRun = this.simulationStore.get()["bulk"];
     }
 
     public deleteDevice = (d: Device) => {
@@ -44,7 +52,13 @@ export class DeviceStore {
                 if (p.mock) { p.mock._id = uuidV4(); }
             }
             d.comms = origDevice.comms;
+            delete d.configuration._deviceList;
+            delete d.configuration.mockDeviceCount;
+            delete d.configuration.dpsPayload;
             delete d.configuration.mockDeviceCloneId;
+            delete d.configuration.machineState;
+            delete d.configuration.machineStateClipboard;
+            delete d.configuration.capabilityModel;
         }
 
         this.store.setItem(d, d._id);
@@ -217,15 +231,17 @@ export class DeviceStore {
             let rd: MockDevice = this.runners[d._id];
             rd.updateDevice(d);
 
-            // build a reported payload and honor type
-            let json: ValueByIdPayload = <ValueByIdPayload>{};
-            let converted = Utils.formatValue(p.string, p.value);
-            //TODO: Should deal with p.value not being set as it could be a Complex
-            json[p._id] = converted
+            if (p._type !== 'method') {
+                // build a reported payload and honor type
+                let json: ValueByIdPayload = <ValueByIdPayload>{};
+                let converted = Utils.formatValue(p.string, p.value);
+                //TODO: Should deal with p.value not being set as it could be a Complex
+                json[p._id] = converted
 
-            // if this an immediate update, send to the runloop
-            if (sendValue === true && p.sdk === "twin") { rd.updateTwin(json); }
-            if (sendValue === true && p.sdk === "msg") { rd.updateMsg(json); }
+                // if this an immediate update, send to the runloop
+                if (sendValue === true && p.sdk === "twin") { rd.updateTwin(json); }
+                if (sendValue === true && p.sdk === "msg") { rd.updateMsg(json); }
+            }
         }
     }
 
@@ -345,23 +361,46 @@ export class DeviceStore {
         }
     }
 
+    public startAllRandom = () => {
+
+        const min = this.bulkRun["random"]["min"];
+        const max = this.bulkRun["random"]["max"];
+
+        let devices: Array<Device> = this.store.getAllItems();
+
+        for (let i = 0; i < devices.length; i++) {
+            const delay = Utils.getRandomNumberBetweenRange(min, max, true);
+            this.liveUpdatesService.sendConsoleUpdate("[" + new Date().toUTCString() + "][" + devices[i]._id + "] CLIENT DELAYED START SECONDS: " + delay / 1000);
+            setTimeout(() => {
+                this.startDevice(devices[i]);
+            }, delay)
+        }
+    }
+
     public startAll = () => {
+
+        if (this.bulkRun != null && this.bulkRun["mode"] === 'random') {
+            this.startAllRandom();
+            return;
+        }
+
         let devices: Array<Device> = this.store.getAllItems();
         let count = devices.length;
         let from: number = 0;
         let to: number = 10;
+        const batch = this.bulkRun != null && this.bulkRun["mode"] ? this.bulkRun["mode"]["batch"]["size"] : 10;
 
         this.startAllBatch(from, count > to ? to : count, devices)
         let timer = setInterval(() => {
             from = to;
-            if (to + 10 > count) {
+            if (to + batch > count) {
                 to = count;
                 clearInterval(timer);
             } else {
-                to += 10;
+                to += batch;
             }
             if (to <= devices.length) { this.startAllBatch(from, to, devices); }
-        }, 5000);
+        }, this.bulkRun["mode"] ? this.bulkRun["mode"]["batch"]["delay"] : 5000);
     }
 
     public startAllBatch = (from: number, to: number, devices: Array<Device>) => {

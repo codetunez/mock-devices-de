@@ -169,7 +169,7 @@ export class MockDevice {
     updateMsg(payload: ValueByIdPayload) {
         this.msgRLPayloadAdditions = payload;
     }
-    
+
     processMockDevicesCMD(name: string) {
 
         const methodName = name.toLocaleLowerCase();
@@ -373,7 +373,7 @@ export class MockDevice {
 
                 this.iotHubDevice.client.onDeviceMethod(m.name, (request, response) => {
                     this.messageService.sendConsoleUpdate("[" + new Date().toUTCString() + "][" + this.device._id + "][METH] <- " + request.methodName + " " + JSON.stringify(request.payload));
-                    Object.assign(this.receivedMethodParams, { [m._id]: { date: new Date().toUTCString(), payload: JSON.stringify(request.payload) } });
+                    Object.assign(this.receivedMethodParams, { [m._id]: { date: new Date().toUTCString(), payload: JSON.stringify(request.payload || '') } });
                     response.send((m.status), payload, (err) => {
                         if (m.asProperty) { this.methodReturnPayload = Object.assign({}, { [m.name]: m.payload }) }
                         this.messageService.sendConsoleUpdate("[" + new Date().toUTCString() + "][" + this.device._id + "][RESP] -> " + (err ? err.toString() : JSON.stringify(payload)));

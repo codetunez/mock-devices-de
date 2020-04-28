@@ -25,12 +25,50 @@ export default function (deviceStore, simulationStore) {
             let payload = req.body;
             deviceStore.stopAll();
             if (payload.simulation) { simulationStore.set(payload.simulation); }
+            deviceStore.init();
             deviceStore.createFromArray(payload.devices);
             res.json(deviceStore.getListOfItems());
             res.end();
         }
         catch (err) {
             res.status(500).send({ "message": "Cannot import this data" })
+            res.end();
+        }
+    });
+
+    api.post('/merge', function (req, res) {
+        try {
+            let payload = req.body;
+            deviceStore.stopAll();
+            if (payload.simulation) { simulationStore.set(payload.simulation); }
+            let currentDevices = JSON.parse(JSON.stringify(deviceStore.getListOfItems()));
+            payload.devices = currentDevices.concat(payload.devices);
+            deviceStore.init();
+            deviceStore.createFromArray(payload.devices);
+            res.json(deviceStore.getListOfItems());
+            res.end();
+        }
+        catch (err) {
+            res.status(500).send({ "message": "Cannot merge this data" })
+            res.end();
+        }
+    });
+
+    api.post('/reorder', function (req, res) {
+        try {
+            const { devices, current, next } = req.body;
+
+            const oldItem = devices[current];
+            devices.splice(current, 1);
+            devices.splice(next, 0, oldItem);
+            deviceStore.stopAll();
+            deviceStore.init();
+            deviceStore.createFromArray(devices);
+            res.json(deviceStore.getListOfItems());
+            res.end();
+        }
+        catch (err) {
+            res.status(500).send({ "message": "Cannot reorder this data" })
             res.end();
         }
     });

@@ -74,15 +74,18 @@ export class Device {
 
 export class DeviceConfiguration {
     public _kind: 'dps' | 'hub' | 'template';
+    public _deviceList?: [];
     public deviceId?: string;
+    public devices?: [];
     public mockDeviceName?: string;
+    public mockDeviceCount: number;
     public mockDeviceCloneId?: string;
-    public mockDeviceState?: any;
     public connectionString?: string;
-    public hubConnectionString?: string;
     public scopeId?: string;
     public dpsPayload?: any;
     public sasKey?: string;
-    public capabilityModel?: any;
     public isMasterKey?: boolean;
+    public capabilityModel?: string;
+    public machineState?: string;
+    public machineStateClipboard?: string;
 }
