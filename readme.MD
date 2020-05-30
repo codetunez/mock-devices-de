@@ -1,7 +1,7 @@
-# mock-devices DE (Docker Edition) - v4.4
+# mock-devices DE (Docker Edition) - v5
 Use mock-devices to create fake/mock/simulated devices that connect to an Azure IoT Hub. The devices can send and receive data like a physical device would.
 
-This edition of mock-devices enables the mock-devices engine to run in a Docker container. To use the desktop version, please visit the [mock-devices](http://github.com/codetunez/mock-devices) gihub repo. State files are fully compatiable between the desktop and DE versions of mock-devices. Use the desktop version to generate a state file and run on your desktop in the background using the DE version.
+This edition of mock-devices enables the mock-devices engine to run in a Docker container. To use the desktop version, please visit the [mock-devices](http://github.com/codetunez/mock-devices) github repo. State files are fully compatible between the desktop and DE versions of mock-devices. Use the desktop version to generate a state file and run on your desktop in the background using the DE version.
 
 A single state file has a maximum of 1,000 devices. To increase the number of devices run multiple containers
 
@@ -34,7 +34,7 @@ See the console\
 
 mock-devices DE has several resource endpoints to manage the simulation
 
-The following endpoints deal with the core of creating, running and updating devices as well as adding capabilties to send and recieve data.
+The following endpoints deal with the core of creating, running and updating devices as well as adding capabilities to send and receive data.
 
 - /api/device - CRUD for a device including start/stopping the device
 - /api/devices - Gets the list of current devices and starts/stops all devices
@@ -140,8 +140,11 @@ Defines the connection configuration of the device and the initial create profil
 | dpsPayload       | object  | JSON payload as supported by DPS/Hub build                                         |
 | sasKey           | string  | Device SaS key                                                                     |
 | isMasterKey      | boolean | 'true' \|'false'. If true, device id is ignored and issued during DPS registration |
-| mockDeviceName   | string  | Firendly name used by the GUI                                                      |
+| mockDeviceName   | string  | Friendly name used by the GUI                                                      |
+| mockDeviceName   | string  | Friendly name used by the GUI                                                      |
 | connectionString | string? | Uses Azure IoT Hub connection string if _kind is hub                               |
+| planMode         | boolean | Switch this device to use plan mode                                                |
+| pnpSdk           | boolean | Use Digital Twins 'pnp-refresh' SDK                                                |
 
 EXAMPLE
 
@@ -168,7 +171,7 @@ A _communication_ or comm object is used to define the type of input/output the 
 | property       | type    | usage                                                                                                                        |
 |----------------|---------|------------------------------------------------------------------------------------------------------------------------------|
 | _id            | string  | A unique id for this property. Needs to be unique for the simulation i.e. a GUID                                             |
-| _type          | string  | 'property' \|'method'. Msg/Events and Twins are properties. Primarilty used by the GUI                                       |
+| _type          | string  | 'property' \|'method'. Msg/Events and Twins are properties. Primarily used by the GUI                                        |
 | color          | string? | Only used by GUI                                                                                                             |
 | enabled        | boolean | Only honored when device is in a runloop. Updating a device will send value immediately                                      |
 | interface      | string  | Name the comm property. Not supported                                                                                        |
@@ -307,7 +310,7 @@ EXAMPLE
 | property       | type    | usage                                                                                   |
 |----------------|---------|-----------------------------------------------------------------------------------------|
 | _id            | string  | A unique id for this property. Needs to be unique for the simulation i.e. a GUID        |
-| _type          | string  | 'property' \|'method'. Msg/Events and Twins are properties. Primarilty used by the GUI  |
+| _type          | string  | 'property' \|'method'. Msg/Events and Twins are properties. Primarily used by the GUI   |
 | color          | string? | Only used by GUI                                                                        |
 | enabled        | boolean | Only honored when device is in a runloop. Updating a device will send value immediately |
 | interface      | string  | Name the comm property. Not supported                                                   |
@@ -451,7 +454,7 @@ Complex values must be authored using JSON so use the macro as a string (see exa
 - AUTO_VECTOR - Use a random x,y,z
 - AUTO_MAP - Use empty HashMap
 - AUTO_ENUM/* - Use a random Enum value (See below)
-- AUTO_VALUE - Use the last user suppllied or mock sensor value. Honors String setting.
+- AUTO_VALUE - Use the last user supplied or mock sensor value. Honors String setting.
 
 Enum support is possible by extending the macro to include the list of values. Values can only be integers or strings. Enums use the JavaScript style arrays i.e. [1,0] or ['foo','bar'] Append this to the end of an Enum AUTO like ...
 
