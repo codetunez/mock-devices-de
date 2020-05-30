@@ -1,7 +1,7 @@
 {
   "name": "mock-devices-de",
-  "version": "1.0.0",
-  "description": "mock-devices de",
+  "version": "5.0.0",
+  "description": "mock-devices docker edition",
   "main": "./_dist/start.js",
   "repository": {
     "type": "git",
@@ -11,15 +11,16 @@
     "build": "tsc --pretty"
   },
   "author": "",
-  "license": "MIT",
+  "license": "ISC",
   "dependencies": {
     "@types/node": "^12.0.2",
     "axios": "^0.18.0",
-    "azure-iot-common": "^1.9.9",
-    "azure-iot-device": "^1.9.9",
-    "azure-iot-device-mqtt": "^1.9.9",
-    "azure-iot-provisioning-device-mqtt": "^1.5.9",
-    "azure-iot-security-symmetric-key": "^1.5.9",
+    "azure-iot-common": "^1.12.0-pnp-refresh.0",
+    "azure-iot-device": "^1.12.0-pnp-refresh.0",
+    "azure-iot-device-mqtt": "^1.12.0-pnp-refresh.0",
+    "azure-iot-digitaltwins-device": "^1.0.0-pnp-refresh.0",
+    "azure-iot-provisioning-device-mqtt": "^1.8.0-pnp-refresh.0",
+    "azure-iot-security-symmetric-key": "^1.8.0-pnp-refresh.0",
     "azure-iothub": "^1.9.9",
     "body-parser": "^1.19.0",
     "cors": "^2.8.5",
@@ -28,6 +29,7 @@
     "random-location": "^1.1.2",
     "random-words": "^1.1.0",
     "request": "^2.88.0",
-    "typescript": "^3.6.4"
+    "typescript": "^3.6.4",
+    "uuid": "^3.3.2"
   }
 }

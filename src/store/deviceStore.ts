@@ -1,7 +1,7 @@
 import { Config } from '../config';
 import { AssociativeStore } from '../framework/AssociativeStore'
 import { SensorStore } from './sensorStore'
-import { Method, Device, Property, MockSensor } from '../interfaces/device';
+import { Method, Device, Property } from '../interfaces/device';
 import { MockDevice } from '../core/mockDevice';
 import { MessageService } from '../interfaces/messageService';
 import { ValueByIdPayload } from '../interfaces/payload';
@@ -43,15 +43,28 @@ export class DeviceStore {
 
     public addDevice = (d: Device) => {
 
+        // set this up by default
+        d.plan = {
+            loop: false,
+            startup: [],
+            timeline: [],
+            random: [],
+            receive: []
+        }
+
         if (d.configuration.mockDeviceCloneId && d.configuration.mockDeviceCloneId != null) {
             let origDevice: Device = JSON.parse(JSON.stringify(this.store.getItem(d.configuration.mockDeviceCloneId)));
             origDevice.running = false;
+            d.configuration.capabilityUrn = origDevice.configuration.capabilityUrn;
             for (let i = 0; i < origDevice.comms.length; i++) {
                 let p = origDevice.comms[i];
                 p._id = uuidV4();
                 if (p.mock) { p.mock._id = uuidV4(); }
             }
             d.comms = origDevice.comms;
+            // because every property id in mock-devices is unique, a plan cannot be copied without a refactor
+            // d.plan = origDevice.plan;
+            d.configuration.planMode = false;
             delete d.configuration._deviceList;
             delete d.configuration.mockDeviceCount;
             delete d.configuration.dpsPayload;
@@ -60,6 +73,9 @@ export class DeviceStore {
             delete d.configuration.machineStateClipboard;
             delete d.configuration.capabilityModel;
         }
+
+        // TODO: need to refactor double device Id problem
+        d.configuration.deviceId = d._id;
 
         this.store.setItem(d, d._id);
         let md = new MockDevice(d, this.liveUpdatesService, this);
@@ -72,10 +88,10 @@ export class DeviceStore {
         this.store.setItem(d, d._id);
     }
 
-    public updateDevice = (id: string, payload: any) => {
+    public updateDevice = (id: string, payload: any, type?: any) => {
 
         let d: Device = this.store.getItem(id);
-        let newId: string = Utils.getDeviceId(payload.connectionString) || payload.deviceId;
+        let newId: string = type === 'configuration' ? Utils.getDeviceId(payload.connectionString) || payload.deviceId || id : id;
 
         this.stopDevice(d);
         delete this.runners[d._id];
@@ -84,7 +100,11 @@ export class DeviceStore {
             d._id = newId;
             this.store.deleteItem(id);
         }
-        Object.assign(d.configuration, payload);
+
+        if (type === 'urn') Object.assign(d.configuration.capabilityUrn, payload.capabilityUrn);
+        if (type === 'plan') { d.plan = payload; }
+        if (type === 'configuration') Object.assign(d.configuration, payload);
+
         this.store.setItem(d, d._id);
 
         let md = new MockDevice(d, this.liveUpdatesService, this);
@@ -99,10 +119,14 @@ export class DeviceStore {
         let method: Method = {
             "_id": uuidV4(),
             "_type": "method",
+            "execution": 'direct',
             "enabled": true,
             "name": "method" + crypto.randomBytes(2).toString('hex'),
             "color": this.simColors["Color1"],
-            "interface": "(single interface only)",
+            "interface": {
+                "name": "Interface 1",
+                "urn": "urn:interface:device:1"
+            },
             "status": 200,
             "receivedParams": null,
             "asProperty": false,
@@ -119,6 +143,7 @@ export class DeviceStore {
 
     /* method  !!! unsafe !!! */
     public addDeviceProperty = (id: string, type: string, override: any = {}): string => {
+        let d: Device = this.store.getItem(id);
         let property: Property = null;
         let _id = uuidV4();
         switch (type) {
@@ -129,7 +154,10 @@ export class DeviceStore {
                     "name": "d2cProperty",
                     "color": this.simColors["Default"],
                     "enabled": false,
-                    "interface": "(single interface only)",
+                    "interface": {
+                        "name": "Interface 1",
+                        "urn": "urn:interface:device:1"
+                    },
                     "string": false,
                     "value": 0,
                     "sdk": "msg",
@@ -155,7 +183,10 @@ export class DeviceStore {
                     "enabled": true,
                     "name": "c2dProperty",
                     "color": this.simColors["Color2"],
-                    "interface": "(single interface only)",
+                    "interface": {
+                        "name": "Interface 1",
+                        "urn": "urn:interface:device:1"
+                    },
                     "string": false,
                     "value": 0,
                     "sdk": "twin",
@@ -171,7 +202,6 @@ export class DeviceStore {
                 break;
         }
 
-        let d: Device = this.store.getItem(id);
         property.name = property.name + '_' + crypto.randomBytes(2).toString('hex');
         delete override._id;
         Object.assign(property, override);
@@ -213,6 +243,12 @@ export class DeviceStore {
     }
 
     /* method !!! unsafe !!! */
+    public restartDevicePlan = (id: string) => {
+        let rd: MockDevice = this.runners[id];
+        rd.reconfigDeviceDynamically();
+    }
+
+    /* method !!! unsafe !!! */
     public updateDeviceProperty = (id: string, propertyId: string, payload: Property, sendValue: boolean) => {
         let d: Device = this.store.getItem(id);
 
@@ -231,17 +267,15 @@ export class DeviceStore {
             let rd: MockDevice = this.runners[d._id];
             rd.updateDevice(d);
 
-            if (p._type !== 'method') {
-                // build a reported payload and honor type
-                let json: ValueByIdPayload = <ValueByIdPayload>{};
-                let converted = Utils.formatValue(p.string, p.value);
-                //TODO: Should deal with p.value not being set as it could be a Complex
-                json[p._id] = converted
+            // build a reported payload and honor type
+            let json: ValueByIdPayload = <ValueByIdPayload>{};
+            let converted = Utils.formatValue(p.string, p.value);
+            //TODO: Should deal with p.value not being set as it could be a Complex
+            json[p._id] = converted
 
-                // if this an immediate update, send to the runloop
-                if (sendValue === true && p.sdk === "twin") { rd.updateTwin(json); }
-                if (sendValue === true && p.sdk === "msg") { rd.updateMsg(json); }
-            }
+            // if this an immediate update, send to the runloop
+            if (sendValue === true && p.sdk === "twin") { rd.updateTwin(json); }
+            if (sendValue === true && p.sdk === "msg") { rd.updateMsg(json); }
         }
     }
 
@@ -292,6 +326,9 @@ export class DeviceStore {
                 d.comms[index].runloop.include = false;
                 delete d.comms[index].mock;
             } else {
+                if (d.comms[index]._type === "method") {
+                    this.stopDevice(d);
+                }
                 d.comms.splice(index, 1);
             }
 
@@ -300,6 +337,15 @@ export class DeviceStore {
             let rd: MockDevice = this.runners[d._id];
             rd.updateDevice(d);
         }
+    }
+
+    public cleanPlan = (device: Device, propertyId: string) => {
+        const newPlan: any = {}
+        newPlan.startup = device.plan.startup.filter((p) => { return p.property != propertyId })
+        newPlan.timeline = device.plan.timeline.filter((p) => { return p.property != propertyId });
+        newPlan.receive = device.plan.receive.filter((p) => { return p.propertyOut != propertyId });
+        newPlan.random = device.plan.random.slice();
+        device.plan = newPlan;
     }
 
     public updateDeviceMethod = (id: string, propertyId: string, payload: Property) => {
@@ -347,7 +393,7 @@ export class DeviceStore {
     public stopDevice = (device: Device) => {
 
         if (device.configuration._kind === 'template') { return; }
-        
+
         try {
             let rd: MockDevice = this.runners[device._id];
             rd.end();
@@ -358,22 +404,6 @@ export class DeviceStore {
         }
         catch (err) {
             console.error("[DEVICE ERR] " + err.message);
-        }
-    }
-
-    public startAllRandom = () => {
-
-        const min = this.bulkRun["random"]["min"];
-        const max = this.bulkRun["random"]["max"];
-
-        let devices: Array<Device> = this.store.getAllItems();
-
-        for (let i = 0; i < devices.length; i++) {
-            const delay = Utils.getRandomNumberBetweenRange(min, max, true);
-            this.liveUpdatesService.sendConsoleUpdate("[" + new Date().toUTCString() + "][" + devices[i]._id + "] CLIENT DELAYED START SECONDS: " + delay / 1000);
-            setTimeout(() => {
-                this.startDevice(devices[i]);
-            }, delay)
         }
     }
 
@@ -403,8 +433,27 @@ export class DeviceStore {
         }, this.bulkRun["mode"] ? this.bulkRun["mode"]["batch"]["delay"] : 5000);
     }
 
+    public startAllRandom = () => {
+
+        const min = this.bulkRun["random"]["min"];
+        const max = this.bulkRun["random"]["max"];
+
+        let devices: Array<Device> = this.store.getAllItems();
+
+        for (let i = 0; i < devices.length; i++) {
+            if (devices[i].configuration._kind === 'template') { continue; }
+            if (devices[i].running) { continue; }
+            const delay = Utils.getRandomNumberBetweenRange(min, max, true);
+            this.liveUpdatesService.sendConsoleUpdate(`[${new Date().toISOString()}][${devices[i]._id}] DEVICE DELAYED START SECONDS: ${delay / 1000}`);
+            setTimeout(() => {
+                this.startDevice(devices[i]);
+            }, delay)
+        }
+    }
+
     public startAllBatch = (from: number, to: number, devices: Array<Device>) => {
         for (let i = from; i < to; i++) {
+            if (devices[i].running) { continue; }
             this.startDevice(devices[i]);
         }
     }
@@ -412,7 +461,7 @@ export class DeviceStore {
     public stopAll = () => {
         let devices: Array<Device> = this.store.getAllItems();
         for (let i = 0; i < devices.length; i++) {
-            this.stopDevice(devices[i]);
+            if (devices[i].running) { this.stopDevice(devices[i]); }
         }
     }
 
