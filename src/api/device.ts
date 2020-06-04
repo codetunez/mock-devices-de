@@ -135,8 +135,8 @@ export default function (deviceStore: DeviceStore) {
     // update the device's configuration. will stop the device. send back state of all devices
     api.put('/:id/configuration', function (req, res, next) {
         var id = req.params.id;
-        deviceStore.updateDevice(id, req.body.payload, 'configuration');
-        res.json({ device: deviceStore.exists(id), devices: deviceStore.getListOfItems() });
+        const newId = deviceStore.updateDevice(id, req.body.payload, 'configuration');
+        res.json({ device: deviceStore.exists(newId), devices: deviceStore.getListOfItems() });
         res.end();
     });
 
@@ -187,12 +187,17 @@ export default function (deviceStore: DeviceStore) {
 
             let items = deviceStore.getListOfItems();
             let capacity = Config.Config.MAX_NUM_DEVICES - items.length;
-            let maxCount = parseInt(updatePayload.mockDeviceCount) > capacity ? Config.Config.MAX_NUM_DEVICES - capacity : parseInt(updatePayload.mockDeviceCount);
+
+            let from = parseInt(updatePayload.mockDeviceCount)
+            const to = parseInt(updatePayload.mockDeviceCountMax)
+            const count = to - from === 0 ? 1 : to - from;
+
+            let maxCount = count > capacity ? Config.Config.MAX_NUM_DEVICES - capacity : count;
 
             for (let i = 0; i < maxCount; i++) {
                 let d: Device = new Device();
                 let id = updatePayload._kind === 'dps' ? updatePayload.deviceId : Utils.getDeviceId(updatePayload.connectionString);
-                id = updatePayload.mockDeviceCount > 1 ? id + "-" + (i + 1) : id;
+                id = count > 1 ? id + "-" + from : id;
                 if (deviceStore.exists(id)) {
                     res.status(500).json({ "message": "Device already added" });
                     res.end();
@@ -200,9 +205,10 @@ export default function (deviceStore: DeviceStore) {
                 }
                 d._id = id;
                 d.configuration = JSON.parse(JSON.stringify(updatePayload));
-                d.configuration.mockDeviceName = updatePayload.mockDeviceCount > 1 ? d.configuration.mockDeviceName + "-" + (i + 1) : d.configuration.mockDeviceName;
+                d.configuration.mockDeviceName = count > 1 ? d.configuration.mockDeviceName + "-" + from : d.configuration.mockDeviceName;
                 d.configuration.deviceId = d._id;
                 deviceStore.addDevice(d);
+                from++;
             }
         }
 

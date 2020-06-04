@@ -132,19 +132,20 @@ Example
 ## **configuration** object
 Defines the connection configuration of the device and the initial create profile. Changes here require device restart
 
-| property         | type    | usage                                                                              |
-|------------------|---------|------------------------------------------------------------------------------------|
-| _kind            | string  | 'dps' \|'template'|\|'hub'                                                         |
-| deviceId         | string  | Device id in IoT Hub                                                               |
-| scopeId          | string  | DPS scope ID                                                                       |
-| dpsPayload       | object  | JSON payload as supported by DPS/Hub build                                         |
-| sasKey           | string  | Device SaS key                                                                     |
-| isMasterKey      | boolean | 'true' \|'false'. If true, device id is ignored and issued during DPS registration |
-| mockDeviceName   | string  | Friendly name used by the GUI                                                      |
-| mockDeviceName   | string  | Friendly name used by the GUI                                                      |
-| connectionString | string? | Uses Azure IoT Hub connection string if _kind is hub                               |
-| planMode         | boolean | Switch this device to use plan mode                                                |
-| pnpSdk           | boolean | Use Digital Twins 'pnp-refresh' SDK                                                |
+| property           | type    | usage                                                                              |
+|--------------------|---------|------------------------------------------------------------------------------------|
+| _kind              | string  | 'dps' \|'template'|\|'hub'                                                         |
+| deviceId           | string  | Device id in IoT Hub                                                               |
+| scopeId            | string  | DPS scope ID                                                                       |
+| dpsPayload         | object  | JSON payload as supported by DPS/Hub build                                         |
+| sasKey             | string  | Device SaS key                                                                     |
+| isMasterKey        | boolean | 'true' \|'false'. If true, device id is ignored and issued during DPS registration |
+| mockDeviceName     | string  | Friendly name used by the GUI                                                      |
+| mockDeviceCount    | string? | Device number to start from in bulk create                                         |
+| mockDeviceCountMax | string? | Device number to end on in bulk create                                             |
+| connectionString   | string? | Uses Azure IoT Hub connection string if _kind is hub                               |
+| planMode           | boolean | Switch this device to use plan mode                                                |
+| pnpSdk             | boolean | Use Digital Twins 'pnp-refresh' SDK                                                |
 
 EXAMPLE
 
@@ -158,6 +159,7 @@ EXAMPLE
  "isMasterKey": false,
  "mockDeviceName": "My Device",
  "mockDeviceCount": 1,
+ "mockDeviceCountMax": 1,
 }
 ```
 
@@ -428,7 +430,6 @@ EXAMPLE
         "sasKey": "3249cxvnkj43579fdsg+=DFS90832",
         "isMasterKey": false,
         "mockDeviceName": "My Device",
-        "mockDeviceCount": 1
     },
     "_id": "any-device-id",
     "running": false
