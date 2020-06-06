@@ -497,7 +497,15 @@ export class DeviceStore {
     }
 
     public getListOfItems = () => {
-        return this.store.getAllItems();
+        let devices: Array<Device> = this.store.getAllItems();
+
+        for (const d in devices) {
+            //TODO: _id refactor into configuration
+            const rd: MockDevice = this.runners[devices[d]._id];
+            devices[d].running = rd && rd.getRunning() || false;
+        }
+
+        return devices;
     }
 
     public createFromArray = (items: Array<Device>) => {
