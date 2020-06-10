@@ -373,6 +373,7 @@ export class MockDevice {
             this.log('IOT HUB CLIENT READY', MSG_HUB, MSG_PROC);
             this.CONNECT_RESTART = true;
             this.cleanUp();
+            this.running = true; // Quick fix to change restart behavior
             this.connectClient(connectionString);
             this.mainLoop();
         }, this.RESTART_LOOP)
@@ -628,7 +629,18 @@ export class MockDevice {
         this.registrationConnectionString = 'init';
 
         let transformedSasKey = config.isMasterKey ? this.computeDrivedSymmetricKey(config.sasKey, config.deviceId) : config.sasKey;
-        let dpsPayload = config.dpsPayload && Object.keys(config.dpsPayload).length > 0 ? JSON.parse(config.dpsPayload) : {};
+
+        // this provides back compat for all pre 5.3 state files
+        let dpsPayload = {};
+        if (config.dpsPayload) {
+            try {
+                dpsPayload = JSON.parse(config.dpsPayload);
+            }
+            catch {
+                dpsPayload = config.dpsPayload;
+            }
+        }
+
         let provisioningSecurityClient = new SymmetricKeySecurityClient(config.deviceId, transformedSasKey);
         let provisioningClient = ProvisioningDeviceClient.create('global.azure-devices-provisioning.net', config.scopeId, new MqttDps(), provisioningSecurityClient);
 
