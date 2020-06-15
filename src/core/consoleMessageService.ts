@@ -9,10 +9,8 @@ export class ConsoleMessageService implements MessageService {
     private showLiveUpdate: boolean;
     private timer: any = null;
 
-    constructor(showConsole: boolean, showLiveUpdate: boolean) {
+    constructor() {
         this.liveUpdateTimer();
-        this.showConsole = showConsole;
-        this.showLiveUpdate = showLiveUpdate;
     }
 
     end() {
@@ -20,7 +18,7 @@ export class ConsoleMessageService implements MessageService {
     }
 
     sendConsoleUpdate(message: string) {
-        if (this.showConsole) { console.log(message); }
+        if (Config.CONSOLE_LOGGING) { console.log(message); }
     }
 
     sendAsLiveUpdate(payload: any) {
@@ -28,7 +26,7 @@ export class ConsoleMessageService implements MessageService {
     }
 
     liveUpdateTimer = () => {
-        if (this.showLiveUpdate) {
+        if (Config.PROPERTY_LOGGING) {
             this.timer = setInterval(() => {
                 console.log(JSON.stringify(this.propertyUpdatePayload));
             }, 750)

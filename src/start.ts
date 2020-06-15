@@ -27,7 +27,7 @@ class Server {
 
     public start = () => {
 
-        const ms = new ConsoleMessageService(true, false);
+        const ms = new ConsoleMessageService();
 
         this.deviceStore = new DeviceStore(ms);
         this.sensorStore = new SensorStore();
