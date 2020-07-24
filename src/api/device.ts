@@ -142,13 +142,33 @@ export default function (deviceStore: DeviceStore) {
         res.json(deviceStore.exists(id));
     });
 
-    // twin read fix
+    // twin read cache
     api.get('/:id/property/:propertyId/value', function (req, res, next) {
         var id = req.params.id;
         var propertyId = req.params.propertyId;
         deviceStore.refreshDeviceProperty(id, propertyId);
         // must return the device
         res.json(deviceStore.exists(id));
+    });
+
+    // reorder the position of this device in the list
+    api.post('/reorder', function (req, res) {
+        try {
+            const { current, next } = req.body;
+            const list = deviceStore.getListOfItems();
+            const oldItem = list[current];
+            list.splice(current, 1);
+            list.splice(next, 0, oldItem);
+            deviceStore.stopAll();
+            deviceStore.init();
+            deviceStore.createFromArray(list);
+            res.json({ device: deviceStore.exists(list[next]._id), devices: deviceStore.getListOfItems() });
+            res.end();
+        }
+        catch (err) {
+            res.status(500).send({ "message": "Cannot reorder this data" })
+            res.end();
+        }
     });
 
     // create a new device, template or bulk devices

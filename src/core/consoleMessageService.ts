@@ -4,32 +4,67 @@ import { MessageService } from '../interfaces/messageService';
 
 export class ConsoleMessageService implements MessageService {
 
-    private propertyUpdatePayload = {};
-    private showConsole: boolean;
-    private showLiveUpdate: boolean;
-    private timer: any = null;
+    private eventMessage: Array<any> = [];
+    private eventData = {};
+    private eventControl = {};
+    private timers = {};
 
-    constructor() {
-        this.liveUpdateTimer();
+    private messageIdCount = 1;
+
+    end(type: string) {
+        clearInterval(this.timers[type]);
     }
 
-    end() {
-        this.timer = null;
+    endAll() {
+        for (const timer in this.timers) {
+            this.end(this.timers[timer]);
+        }
     }
-
     sendConsoleUpdate(message: string) {
         if (Config.CONSOLE_LOGGING) { console.log(message); }
     }
 
-    sendAsLiveUpdate(payload: any) {
-        Object.assign(this.propertyUpdatePayload, payload);
-    }
-
-    liveUpdateTimer = () => {
-        if (Config.PROPERTY_LOGGING) {
-            this.timer = setInterval(() => {
-                console.log(JSON.stringify(this.propertyUpdatePayload));
-            }, 750)
+    sendAsLiveUpdate(group: string, payload: any) {
+        if (Config.PROPERTY_LOGGING && Object.keys(payload).length > 0) {
+            const o = this.eventData[group];
+            if (o == null) { this.eventData[group] = payload; }
+            else { for (const key in payload) { this.eventData[group][key] = payload[key] } }
         }
     }
+
+    sendAsControlPlane(payload: any) {
+        if (Config.CONSOLE_LOGGING) {
+            for (const key in payload) { this.eventControl[key] = payload[key] }
+        }
+    }
+
+    messageLoop = (res) => {
+        this.timers['messageLoop'] = setInterval(() => {
+            if (this.eventMessage.length > 0) {
+                let msg = `id: ${this.messageIdCount}\n`
+                for (const event of this.eventMessage) { msg = msg + `data: ${event}\n`; }
+                res.write(msg + `\n`);
+                this.eventMessage = [];
+                this.messageIdCount++
+            }
+        }, 255)
+    }
+
+    controlLoop = (res) => {
+        this.timers['controlLoop'] = setInterval(() => {
+            if (Object.keys(this.eventControl).length > 0) {
+                res.write(`data: ${JSON.stringify(this.eventControl)} \n\n`);
+            }
+        }, 995)
+    }
+
+    dataLoop = (res) => {
+        this.timers['dataLoop'] = setInterval(() => {
+            if (Object.keys(this.eventData).length > 0) {
+                res.write(`data: ${JSON.stringify(this.eventData)} \n\n`);
+                this.eventData = {};
+            }
+        }, 1525)
+    }
+
 }

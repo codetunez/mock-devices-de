@@ -14,6 +14,27 @@ docker pull codetunez/mock-devices
 docker run -p 3300:9100 -d codetunez/mock-devices
 ```
 
+### Developer - Node or Docker
+Clone this repo and from the command line
+
+**Node**
+
+Install and Build
+```
+npm install && npm run build
+
+node _dist/start.js
+```
+
+**Docker**
+
+Building the container\
+`docker build -t md-docker .`
+
+Run the container\
+`docker run -p <port>:9100 -d md-docker`
+
+
 Change `3300` to desired value. To build the container, follow developer instructions at the end of readme.
 
 **Use an exisiting state file.**
@@ -508,23 +529,4 @@ A Map - Needs static keys (Beta)
 }
 ```
 
-# Developer - Node or Docker
-Clone this repo and from the command line
-
-**Node**
-
-Install and Build
-```
-npm install && npm run build
-
-node _dist/start.js
-```
-
-**Docker**
-
-Building the container\
-`docker build -t md-docker .`
-
-Run the container\
-`docker run -p <port>:9100 -d md-docker`
 
