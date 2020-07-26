@@ -48,6 +48,27 @@ export class DeviceStore {
         this.store.deleteItem(d._id);
     }
 
+    public addDeviceModule = (deviceId, moduleId, cloneId): string => {
+        const d: Device = new Device();
+        const moduleKey = Utils.getModuleKey(deviceId, moduleId);
+        d._id = moduleKey
+        d.configuration._kind = 'module';
+        d.configuration.deviceId = moduleKey;
+        d.configuration.mockDeviceCloneId = cloneId;
+        d.configuration.mockDeviceName = moduleKey;
+        return this.addDevice(d)
+    }
+
+    public removeDeviceModule = (d: Device, moduleId: string) => {
+        const i = d.configuration.modules.indexOf(moduleId);
+        if (i > -1) {
+            const payload = {
+                modules: d.configuration.modules.splice(i, 1)
+            }
+            this.updateDevice(d._id, payload);
+        }
+    }
+
     public addDevice = (d: Device) => {
 
         // set this up by default
@@ -105,6 +126,8 @@ export class DeviceStore {
         this.store.setItem(d, d._id);
         let md = new MockDevice(d, this.liveUpdatesService);
         this.runners[d._id] = md;
+
+        return d._id;
     }
 
     public renameDevice = (id: string, name: string) => {
@@ -130,6 +153,16 @@ export class DeviceStore {
         if (type === 'urn') Object.assign(d.configuration.capabilityUrn, payload.capabilityUrn);
         if (type === 'plan') { d.plan = payload; }
         if (type === 'configuration') Object.assign(d.configuration, payload);
+        if (type === 'module') {
+            if (!d.configuration.modules) { d.configuration.modules = []; }
+            const key = Utils.getModuleKey(id, payload.moduleId);
+            const findIndex = d.configuration.modules.findIndex((m) => { return m === key; })
+            if (findIndex === -1) {
+                d.configuration.modules.push(this.addDeviceModule(id, payload.moduleId, payload.mockDeviceCloneId));
+            } else {
+                throw "This module has already been added"; //REFACTOR: new type of error
+            }
+        };
 
         this.store.setItem(d, d._id);
 

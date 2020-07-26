@@ -47,32 +47,6 @@ class Server {
         this.expressServer.use('/api/template', template(this.deviceStore));
         this.expressServer.use('/api', root());
 
-        // experimental stream api
-        this.expressServer.get('/api/events/:type', (req, res, next) => {
-            res.writeHead(200, {
-                'Content-Type': 'text/event-stream',
-                'Connection': 'keep-alive',
-                'Cache-Control': 'no-cache'
-            });
-            res.write('\n');
-
-            const dynamicName = `${req.params.type}Loop`;
-
-            switch (dynamicName) {
-                case "messageLoop": ms.messageLoop(res); break;
-                case "controlLoop": ms.controlLoop(res); break;
-                case "dataLoop": ms.dataLoop(res); break;
-            }
-
-            res.on('close', () => {
-                ms.end(dynamicName);
-            });
-
-            res.on('finish', () => {
-                ms.end(dynamicName);
-            });
-        });
-
         this.expressServer.server.listen(Config.APP_PORT);
         console.log("mock-devices for docker started on: " + this.expressServer.server.address().port);
     }
