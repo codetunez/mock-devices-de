@@ -1,4 +1,4 @@
-# mock-devices DE (Docker Edition) - v6
+# mock-devices DE (Docker Edition) - v6 Beta
 Use mock-devices to create fake/mock/simulated devices that connect to an Azure IoT Hub. The devices can send and receive data like a physical device would.
 
 This edition of mock-devices enables the mock-devices engine to run in a Docker container. To use the desktop version, please visit the [mock-devices](http://github.com/codetunez/mock-devices) github repo. State files are fully compatible between the desktop and DE versions of mock-devices. Use the desktop version to generate a state file and run on your desktop in the background using the DE version.
