@@ -6,4 +6,4 @@ RUN npm install && npm install typescript -g
 COPY . ./
 RUN tsc
 CMD [ "node", "./_dist/start.js" ]
-EXPOSE 9100
+EXPOSE 9000

@@ -3,7 +3,7 @@ import { DeviceStore } from '../store/deviceStore';
 import { Device } from '../interfaces/device';
 import { DCMtoMockDevice } from '../core/templates';
 import * as Utils from '../core/utils';
-import * as  Config from '../config';
+import { Config } from '../config';
 
 export default function (deviceStore: DeviceStore) {
     let api = Router();
@@ -12,6 +12,16 @@ export default function (deviceStore: DeviceStore) {
     api.get('/:id', function (req, res, next) {
         var id = req.params.id;
         res.json(deviceStore.exists(id));
+    });
+
+    // delete a module
+    api.delete('/:id/module/:moduleId', function (req, res, next) {
+        var id = req.params.id;
+        var moduleId = req.params.moduleId;
+        deviceStore.stopDevice(deviceStore.exists(moduleId));
+        deviceStore.deleteDevice(deviceStore.exists(moduleId));
+        deviceStore.removeDeviceModule(deviceStore.exists(id), moduleId)
+        res.json({ device: deviceStore.exists(id), devices: deviceStore.getListOfItems() });
     });
 
     // delete a device
@@ -124,6 +134,18 @@ export default function (deviceStore: DeviceStore) {
         res.json({ device: deviceStore.exists(newId), devices: deviceStore.getListOfItems() });
     });
 
+    // update the device's configuration. will stop the device. send back state of all devices
+    api.put('/:id/module', function (req, res, next) {
+        var id = req.params.id;
+        try {
+            deviceStore.updateDevice(id, req.body.payload, 'module');
+        }
+        catch (msg) {
+            res.status(500).send(msg);
+        }
+        res.json({ device: deviceStore.exists(id), devices: deviceStore.getListOfItems() });
+    });
+
     // required?
     api.post('/:id/property/:propertyId/mock/new', function (req, res, next) {
         var id = req.params.id;
@@ -186,26 +208,35 @@ export default function (deviceStore: DeviceStore) {
         } else {
 
             let items = deviceStore.getListOfItems();
-            let capacity = Config.Config.MAX_NUM_DEVICES - items.length;
+            let capacity = Config.MAX_NUM_DEVICES - items.length;
 
             let from = parseInt(updatePayload.mockDeviceCount);
             const to = parseInt(updatePayload.mockDeviceCountMax) + 1;
             const count = to - from === 0 ? 1 : to - from;
 
-            let maxCount = count > capacity ? Config.Config.MAX_NUM_DEVICES - capacity : count;
+            let maxCount = count > capacity ? Config.MAX_NUM_DEVICES - capacity : count;
 
             for (let i = 0; i < maxCount; i++) {
                 let d: Device = new Device();
-                let id = updatePayload._kind === 'dps' ? updatePayload.deviceId : Utils.getDeviceId(updatePayload.connectionString);
-                id = count > 1 ? id + "-" + from : id;
-                if (deviceStore.exists(id)) {
+
+                let createId = null;
+                if (updatePayload._kind === 'dps') {
+                    createId = updatePayload.deviceId;
+                } else if (updatePayload._kind === 'hub') {
+                    Utils.getDeviceId(updatePayload.connectionString);
+                } else {
+                    createId = updatePayload.deviceId;
+                }
+
+                createId = count > 1 ? createId + "-" + from : createId;
+                if (deviceStore.exists(createId)) {
                     res.status(500).json({ "message": "Device already added" });
                     return;
                 }
-                d._id = id;
+                d._id = createId;
                 d.configuration = JSON.parse(JSON.stringify(updatePayload));
                 d.configuration.mockDeviceName = count > 1 ? d.configuration.mockDeviceName + "-" + from : d.configuration.mockDeviceName;
-                d.configuration.deviceId = d._id;
+                d.configuration.deviceId = createId;
                 deviceStore.addDevice(d);
                 from++;
             }
