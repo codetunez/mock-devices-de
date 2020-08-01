@@ -1,7 +1,7 @@
 # mock-devices DE (Docker Edition) v6 Beta
-Use mock-devices to create fake/mock/simulated devices that connect to an Azure IoT Hub. The devices can send and receive data like a physical device would. This Beta brings support for Azure IoT Edge device modules.
+Use mock-devices to create simulated devices and simulated Edge modules that connect to an Azure IoT Hub. The devices/modules support D2C/C2D scenarios using the device SDK
 
-This edition of mock-devices enables the mock-devices engine to run in a Docker container. To use the desktop version and see the full feature list, please visit the [mock-devices](http://github.com/codetunez/mock-devices) github repo. State files are fully compatible between the desktop and DE versions of mock-devices. Use the desktop version to generate a state file and run on your desktop in the background using the DE version.
+This edition of mock-devices is a Docker container with no UX. To use the desktop version and see the full feature list, please visit the [mock-devices](http://github.com/codetunez/mock-devices) github repo. State files are fully compatible between the desktop and DE versions. Use the desktop version to generate a state file and run on your desktop in the background using the DE version.
 
 ## **v6 - Beta**
 To see how to configure mock-devices DE as an Edge module visit [mock-devices-edge](http://github.com/codetunez/mock-devices-edge) 
@@ -58,7 +58,7 @@ See the console\
 `docker logs -f <container id>`
 
 Stop all devices\
-`curl http://127.0.0.1:8989/api/devices/start`
+`curl http://127.0.0.1:8989/api/devices/stop`
 
 
 # API
@@ -123,52 +123,65 @@ EXAMPLE
 ---
 
 ## **device** object
-The device object defines all of the device's inputs/outputs and it's connection configuration.
+The device object defines all of the device's or module's inputs/outputs and it's connection configuration.
 
 | property      | type    | usage                                                                                        |
 |---------------|---------|----------------------------------------------------------------------------------------------|
-| _id           | string  | A unique id for this device. Needs to be unique for the simulation i.e. a GUID               |
-| running       | boolean | Readonly. Get the running state of the device. If true the device will interact with the Hub |
+| _id           | string  | Device id in IoT Hub or DeviceId + ModuleId                                                  |
 | comms         | array   | The list of **comm** objects                                                                 |
 | configuration | object  | The connection information of a device                                                       |
+| plan          | array   | The list of plan objects (TBD)                                                               |
 
-Example
+To represent a module, format the id using \<deviceId\>moduleId
+
+Example for device
 
 ```
 {
-    "_id: "1234",
-    "running: false
-    "comms" : []
-    "configuration" : {}
+    "_id: "a-device",
+    "configuration" : { _type: 'dps'}
+    "comms" : [],
+    "plan" : []    
+}
+```
+
+Example for module
+
+```
+{
+    "_id: "<a-device>a-module",
+    "configuration" : { _type: 'module'},
+    "comms" : [],
+    "plan" : []
 }
 ```
 
 **POST**\
-\<device> `curl -d "<configuration>" -H "Content-Type: application/json"  -X POST http://127.0.0.1:8080/api/device/new`
+\<device> `curl -d "<configuration>" -H "Content-Type: application/json"  -X POST http://127.0.0.1:8989/api/device/new`
 
 **DELETE**\
-\<devices> `curl -X DELETE http://127.0.0.1:8080/api/device/<device id>`
+\<devices> `curl -X DELETE http://127.0.0.1:8989/api/device/<device id>`
 
 **PUT**\
 *can only update configuration*\
-\<device> `curl -d "<configuration>" -H "Content-Type: application/json" -X POST http://127.0.0.1:8080/api/<device id>`
+\<device> `curl -d "<configuration>" -H "Content-Type: application/json" -X POST http://127.0.0.1:8989/api/<device id>`
 
 **GET**\
-\<device> `curl http://127.0.0.1:8080/api/device/<device id>`
+\<device> `curl http://127.0.0.1:8989/api/device/<device id>`
 
 **Transport - This device only**
 
 **GET**\
-\<device> `curl http://127.0.0.1:8080/api/device/<device id>/start`\
-\<device> `curl http://127.0.0.1:8080/api/device/<device id>/stop`
+\<device> `curl http://127.0.0.1:8989/api/device/<device id>/start`\
+\<device> `curl http://127.0.0.1:8989/api/device/<device id>/stop`
 
 ## **configuration** object
 Defines the connection configuration of the device and the initial create profile. Changes here require device restart
 
 | property           | type    | usage                                                                              |
 |--------------------|---------|------------------------------------------------------------------------------------|
-| _kind              | string  | 'dps' \|'template'|\|'hub'                                                         |
-| deviceId           | string  | Device id in IoT Hub                                                               |
+| _kind              | string  | 'dps' \| 'template' \| 'hub' \| 'module \| 'edge'                                  |
+| deviceId           | string  | Device id in IoT Hub or DeviceId + ModuleId                                        |
 | scopeId            | string  | DPS scope ID                                                                       |
 | dpsPayload         | object  | JSON payload as supported by DPS/Hub build                                         |
 | sasKey             | string  | Device SaS key                                                                     |
@@ -178,7 +191,7 @@ Defines the connection configuration of the device and the initial create profil
 | mockDeviceCountMax | string? | Device number to end on in bulk create                                             |
 | connectionString   | string? | Uses Azure IoT Hub connection string if _kind is hub                               |
 | planMode           | boolean | Switch this device to use plan mode                                                |
-| pnpSdk             | boolean | Use Digital Twins 'pnp-refresh' SDK                                                |
+| modules            | array   | The list of _id represent 
 
 EXAMPLE
 
@@ -224,8 +237,8 @@ A _communication_ or comm object is used to define the type of input/output the 
 To use a mock sensor, assign a \<sensor> to the mock property and change the mock value in the type object
 
 GET\
-\<sensors> `curl http://127.0.0.1:8080/api/sensors`\
-\<sensor> `curl http://127.0.0.1:8080/api/sensors/<type>`
+\<sensors> `curl http://127.0.0.1:8989/api/sensors`\
+\<sensor> `curl http://127.0.0.1:8989/api/sensors/<type>`
 
 
 #### projectObject object
@@ -284,18 +297,18 @@ EXAMPLE
 
 **POST**\
 *create the comm with defaults*\
-\<device> `curl -d "{type:'d2c'}" -H "Content-Type: application/json" -X POST http://127.0.0.1:8080/api/device/<device id>/property/new`\
+\<device> `curl -d "{type:'d2c'}" -H "Content-Type: application/json" -X POST http://127.0.0.1:8989/api/device/<device id>/property/new`\
 *create the default mock sensor and assign to comm*\
-\<device> `curl -X POST http://127.0.0.1:8080/api/device/<device id>/property/<property id>/mock/new`
+\<device> `curl -X POST http://127.0.0.1:8989/api/device/<device id>/property/<property id>/mock/new`
 
 **PUT**\
-\<device> `curl -d "{comm}" -H "Content-Type: application/json" -X POST http://127.0.0.1:8080/api/device/<device id>/property/<property id>`
+\<device> `curl -d "{comm}" -H "Content-Type: application/json" -X POST http://127.0.0.1:8989/api/device/<device id>/property/<property id>`
 
 **DELETE**\
-\<devices> `curl -X DELETE http://127.0.0.1:8080/api/device/<device id>/property/<property id>`
+\<devices> `curl -X DELETE http://127.0.0.1:8989/api/device/<device id>/property/<property id>`
 
 **GET**\
-\<devices> `curl http://127.0.0.1:8080/api/device/<device id>/property/<property id>`
+\<devices> `curl http://127.0.0.1:8989/api/device/<device id>/property/<property id>`
 
 #### This is how to use the comm object to define a data receive property
 runloop not required
@@ -325,19 +338,19 @@ EXAMPLE
 ```
 **POST**\
 *create the comm with defaults*\
-\<device> `curl -d "{type:'c2d'}" -H "Content-Type: application/json" -X POST http://127.0.0.1:8080/api/device/<device id>/property/new`\
+\<device> `curl -d "{type:'c2d'}" -H "Content-Type: application/json" -X POST http://127.0.0.1:8989/api/device/<device id>/property/new`\
 
 **PUT**\
 *update comm and not value*\
-\<device> `curl -d "{comm}" -H "Content-Type: application/json" -X POST http://127.0.0.1:8080/api/device/<device id>/property/<property id>`\
+\<device> `curl -d "{comm}" -H "Content-Type: application/json" -X POST http://127.0.0.1:8989/api/device/<device id>/property/<property id>`\
 *update comm and value*\
-\<device> `curl -d "{comm}" -H "Content-Type: application/json" -X POST http://127.0.0.1:8080/api/device/<device id>/property/<property id>/value`
+\<device> `curl -d "{comm}" -H "Content-Type: application/json" -X POST http://127.0.0.1:8989/api/device/<device id>/property/<property id>/value`
 
 **DELETE**\
-\<devices> `curl -X DELETE http://127.0.0.1:8080/api/device/<device id>/property/<property id>`
+\<devices> `curl -X DELETE http://127.0.0.1:8989/api/device/<device id>/property/<property id>`
 
 **GET**\
-\<devices> `curl http://127.0.0.1:8080/api/device/<device id>/property/<property id>`
+\<devices> `curl http://127.0.0.1:8989/api/device/<device id>/property/<property id>`
 
 
 #### This is how to use the comm object to define a method property 
@@ -372,16 +385,16 @@ EXAMPLE
 ```
 **POST**\
 *create the comm with defaults*\
-\<device> `curl -X POST http://127.0.0.1:8080/api/device/<device id>/method/new`
+\<device> `curl -X POST http://127.0.0.1:8989/api/device/<device id>/method/new`
 
 **PUT**\
-\<device> `curl -d "{comm}" -H "Content-Type: application/json" -X POST http://127.0.0.1:8080/api/device/<device id>/method/<method id>`
+\<device> `curl -d "{comm}" -H "Content-Type: application/json" -X POST http://127.0.0.1:8989/api/device/<device id>/method/<method id>`
 
 **DELETE**\
-\<devices> `curl -X DELETE http://127.0.0.1:8080/api/device/<device id>/method/<method id>`
+\<devices> `curl -X DELETE http://127.0.0.1:8989/api/device/<device id>/method/<method id>`
 
 **GET**\
-\<devices> `curl http://127.0.0.1:8080/api/device/<device id>/<method>/<method id>`
+\<devices> `curl http://127.0.0.1:8989/api/device/<device id>/<method>/<method id>`
 
 # Sample device object JSON
 ```
