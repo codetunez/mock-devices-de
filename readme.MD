@@ -33,10 +33,10 @@ node _dist/start.js
 **Docker**
 
 Building the container\
-`docker build -t md-docker .`
+`docker build -t <namespace>\mock-devices .`
 
 Run the container (changing port)\
-`docker run -p 8989:9000 -d md-docker`
+`docker run -p 8989:9000 -d <namespace>\mock-devices`
 
 
 # Loading data and running the engine
@@ -191,9 +191,7 @@ Defines the connection configuration of the device and the initial create profil
 | mockDeviceCountMax | string? | Device number to end on in bulk create                                             |
 | connectionString   | string? | Uses Azure IoT Hub connection string if _kind is hub                               |
 | planMode           | boolean | Switch this device to use plan mode                                                |
-| modules            | array   | The list of _id represent 
-
-EXAMPLE
+| modules            | array   | The list of _ids that are modules for the Edge device                              | 
 
 ```
 {
