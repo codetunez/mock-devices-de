@@ -223,7 +223,7 @@ export default function (deviceStore: DeviceStore) {
                 if (updatePayload._kind === 'dps') {
                     createId = updatePayload.deviceId;
                 } else if (updatePayload._kind === 'hub') {
-                    Utils.getDeviceId(updatePayload.connectionString);
+                    createId = Utils.getDeviceId(updatePayload.connectionString);
                 } else {
                     createId = updatePayload.deviceId;
                 }
