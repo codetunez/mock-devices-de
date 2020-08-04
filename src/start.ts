@@ -56,7 +56,7 @@ class Server {
         this.expressServer.use('/api/simulation', semantics(this.deviceStore, this.simulationStore));
         this.expressServer.use('/api/device', device(this.deviceStore));
         this.expressServer.use('/api/devices', devices(this.deviceStore));
-        this.expressServer.use('/api/state', state(this.deviceStore, this.simulationStore));
+        this.expressServer.use('/api/state', state(this.deviceStore, this.simulationStore, ms));
         this.expressServer.use('/api/server', server(this.deviceStore));
         this.expressServer.use('/api/sensors', sensors(this.sensorStore));
         this.expressServer.use('/api/template', template(this.deviceStore));
