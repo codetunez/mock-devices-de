@@ -71,7 +71,7 @@ class Server {
             });
             res.write('\n');
 
-            // messageLoop|controlLoop|dataLoop
+            // messageLoop|controlLoop|dataLoop|stateLoop
             const dynamicName = `${req.params.type}Loop`;
             ms[dynamicName](res);
             res.on('close', () => { ms.end(dynamicName); });
