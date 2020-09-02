@@ -250,7 +250,11 @@ export class MockDevice {
 
             // set up runloop reporting
             if (comm.runloop && comm.runloop.include === true) {
-                let ms = comm.runloop.value * (comm.runloop.unit === 'secs' ? 1000 : 60000);
+
+                // Adding for back compat. This will also update the UX for any configuration missing valueMax
+                if (!comm.runloop.valueMax) { comm.runloop.valueMax = comm.runloop.value; }
+                const newRunloopValue = Utils.getRandomNumberBetweenRange(comm.runloop.value, comm.runloop.valueMax, true);
+                comm.runloop._ms = newRunloopValue * (comm.runloop.unit === 'secs' ? 1000 : 60000);
 
                 let mockSensorTimerObject = null;
 
@@ -269,18 +273,18 @@ export class MockDevice {
 
                     slice = startValue / (comm.mock.timeToRunning / 1000);
                     mockSensorTimerObject = { sliceMs: slice, remainingMs: comm.mock.timeToRunning };
-                    comm.mock._value = comm.mock.init;
+                    comm.mock._value = Utils.formatValue(false, comm.mock.init);
                 }
 
                 if (comm.sdk === 'twin') {
                     this.twinRLProps.push(comm);
-                    this.twinRLReportedTimers.push({ timeRemain: ms, originalTime: ms });
+                    this.twinRLReportedTimers.push({ timeRemain: comm.runloop._ms, originalTime: comm.runloop._ms });
                     if (mockSensorTimerObject != null) { this.twinRLMockSensorTimers[comm._id] = mockSensorTimerObject; }
                 }
 
                 if (comm.sdk === 'msg') {
                     this.msgRLProps.push(comm);
-                    this.msgRLReportedTimers.push({ timeRemain: ms, originalTime: ms });
+                    this.msgRLReportedTimers.push({ timeRemain: comm.runloop._ms, originalTime: comm.runloop._ms });
                     if (mockSensorTimerObject != null) { this.msgRLMockSensorTimers[comm._id] = mockSensorTimerObject; }
                 }
             }
@@ -612,6 +616,9 @@ export class MockDevice {
     }
 
     sendPlanResponse(index, name) {
+        // this is from the hub where desired twin contains a meta tag
+        if (name === '$version') { return; }
+
         const propertyId = index[name];
         const property = this.device.plan.receive.find((prop) => { return prop.propertyIn === propertyId });
         if (property) {
@@ -823,13 +830,14 @@ export class MockDevice {
             let res = this.processCountdown(p, timeRemain, possibleResetTime);
             runloopTimers[i] = { 'timeRemain': res.timeRemain, originalTime };
 
-            this.updateSensorValue(p, propertySensorTimers, res.process);
             // for plan mode we send regardless of enabled or not
             if (res.process && (this.device.configuration.planMode || p.enabled)) {
                 let o: ValueByIdPayload = <ValueByIdPayload>{};
-                o[p._id] = this.device.configuration.planMode ? Utils.formatValue(p.string, runloopPropertiesValues[i]) : (p.mock ? p.mock._value : Utils.formatValue(p.string, p.value));
+                o[p._id] = this.device.configuration.planMode ? Utils.formatValue(p.string, runloopPropertiesValues[i]) : (p.mock ? p.mock._value || Utils.formatValue(false, p.mock.init) : Utils.formatValue(p.string, p.value));
                 Object.assign(payload, o);
             }
+
+            this.updateSensorValue(p, propertySensorTimers, res.process);
         }
         return payload;
     }
@@ -864,13 +872,21 @@ export class MockDevice {
         }
 
         if (p.mock._type === 'hotplate') {
-            var newCurrent = p.mock._value + (slice - (slice * p.mock.variance));
-            p.mock._value = newCurrent <= p.mock.running ? newCurrent : p.mock.running;
+            if (p.mock.reset && Utils.isNumeric(p.mock.reset) && Utils.formatValue(false, p.mock.reset) === p.mock._value) {
+                p.mock._value = Utils.formatValue(false, p.mock.init);
+            } else {
+                var newCurrent = p.mock._value + (slice - (slice * p.mock.variance));
+                p.mock._value = newCurrent <= p.mock.running ? newCurrent : p.mock.running;
+            }
         }
 
         if (p.mock._type === 'battery') {
-            var newCurrent = p.mock._value - (slice + (slice * p.mock.variance));
-            p.mock._value = newCurrent > p.mock.running ? newCurrent : p.mock.running;
+            if (p.mock.reset && Utils.isNumeric(p.mock.reset) && Utils.formatValue(false, p.mock.reset) === p.mock._value) {
+                p.mock._value = Utils.formatValue(false, p.mock.init);
+            } else {
+                var newCurrent = p.mock._value - (slice + (slice * p.mock.variance));
+                p.mock._value = newCurrent > p.mock.running ? newCurrent : p.mock.running;
+            }
         }
 
         if (p.mock._type === 'random') {
@@ -880,6 +896,24 @@ export class MockDevice {
         if (p.mock._type === 'function' && process) {
             const res: any = await this.getFunctionPost(p.mock.function, p.mock._value);
             p.mock._value = res;
+        }
+
+        if (p.mock._type === 'inc' && process) {
+            const inc = p.mock.variance && Utils.isNumeric(p.mock.variance) ? Utils.formatValue(false, p.mock.variance) : 1;
+            if (p.mock.reset && Utils.isNumeric(p.mock.reset) && Utils.formatValue(false, p.mock.reset) === p.mock._value) {
+                p.mock._value = Utils.formatValue(false, p.mock.init);
+            } else {
+                p.mock._value = p.mock._value + inc;
+            }
+        }
+
+        if (p.mock._type === 'dec' && process) {
+            const dec = p.mock.variance && Utils.isNumeric(p.mock.variance) ? Utils.formatValue(false, p.mock.variance) : 1;
+            if (p.mock.reset && Utils.isNumeric(p.mock.reset) && Utils.formatValue(false, p.mock.reset) === p.mock._value) {
+                p.mock._value = Utils.formatValue(false, p.mock.init);
+            } else {
+                p.mock._value = p.mock._value - dec;
+            }
         }
     }
 
@@ -923,8 +957,7 @@ export class MockDevice {
             if (this.device.configuration.planMode) {
                 timeRemain = this.device.plan.loop ? originalPlanTime : -1;
             } else {
-                let mul = p.runloop.unit === 'secs' ? 1000 : 60000
-                timeRemain = p.runloop.value * mul;
+                timeRemain = p.runloop._ms;
             }
             res.process = true;
         }

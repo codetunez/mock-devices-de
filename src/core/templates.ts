@@ -132,7 +132,8 @@ function DCMCapabilityToComm(item: any, deviceId: string, deviceStore: DeviceSto
         o.runloop = {
             'include': true,
             'unit': runLoopUnit === 'mins' ? 'mins' : 'secs',
-            'value': Utils.getRandomNumberBetweenRange(simRunloop[runLoopUnit]["min"], simRunloop[runLoopUnit]["max"], true)
+            'value': simRunloop[runLoopUnit]["min"],
+            'valueMax': simRunloop[runLoopUnit]["max"]
         }
     }
 

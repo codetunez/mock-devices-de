@@ -41,10 +41,10 @@ node _dist/start.js
 **Docker**
 
 Building the container\
-`docker build -t <namespace>\mock-devices-de .`
+`docker build -t <namespace>/mock-devices-de .`
 
 Run the container (changing port)\
-`docker run -p 8989:9000 -d <namespace>\mock-devices-de`
+`docker run -p 8989:9000 -d <namespace>/mock-devices-de`
 
 
 # Loading data and running the engine

@@ -7,6 +7,8 @@ export interface RunLoop {
     include: boolean;
     unit: 'secs' | 'mins';
     value: number;
+    valueMax: number;
+    _ms: number;
 }
 
 export interface PnpInterface {
@@ -17,13 +19,14 @@ export interface PnpInterface {
 export interface MockSensor {
     _id: string;
     _hasState: boolean;
-    _type: 'fan' | 'hotplate' | 'battery' | 'random' | 'function';
+    _type: 'fan' | 'hotplate' | 'battery' | 'random' | 'function' | 'inc' | 'dec';
     _value: number;
     init: number;
     running?: number;
     variance?: number;
     timeToRunning?: number;
     function?: string;
+    reset?: number;
 }
 
 export interface Property {

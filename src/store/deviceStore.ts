@@ -22,6 +22,7 @@ export class DeviceStore {
     private simulationStore = null;
     private simColors = null;
     private bulkRun = null;
+    private runloop = null;
 
     constructor(messageService) {
         this.messageService = messageService;
@@ -36,10 +37,12 @@ export class DeviceStore {
 
         this.simColors = this.simulationStore.get()["colors"];
         this.bulkRun = this.simulationStore.get()["bulk"];
+        this.runloop = this.simulationStore.get()["runloop"];
     }
 
     public reset() {
         this.stopAll();
+        this.messageService.clearState();
         this.init();
     }
 
@@ -79,39 +82,7 @@ export class DeviceStore {
             receive: []
         }
 
-        if (d.configuration.mockDeviceCloneId) {
-            const origDevice: Device = JSON.parse(JSON.stringify(this.store.getItem(d.configuration.mockDeviceCloneId)));
-            if (Object.keys(origDevice).length != 0) {
-                d.configuration.capabilityUrn = origDevice.configuration.capabilityUrn;
-                for (let i = 0; i < origDevice.comms.length; i++) {
-                    let p = origDevice.comms[i];
-                    const origPropertyId = p._id;
-                    const newPropertyId = uuidV4();
-                    p._id = newPropertyId;
-                    if (p.mock) { p.mock._id = uuidV4(); }
-
-                    for (const property in origDevice.plan.startup) {
-                        if (origDevice.plan.startup[property].property === origPropertyId) { origDevice.plan.startup[property].property = newPropertyId };
-                    }
-
-                    for (const property in origDevice.plan.timeline) {
-                        if (origDevice.plan.timeline[property].property === origPropertyId) { origDevice.plan.timeline[property].property = newPropertyId };
-                    }
-
-                    for (const property in origDevice.plan.random) {
-                        if (origDevice.plan.random[property].property === origPropertyId) { origDevice.plan.random[property].property = newPropertyId };
-                    }
-
-                    for (const property in origDevice.plan.receive) {
-                        if (origDevice.plan.receive[property].propertyIn === origPropertyId) { origDevice.plan.receive[property].propertyIn = newPropertyId };
-                        if (origDevice.plan.receive[property].propertyOut === origPropertyId) { origDevice.plan.receive[property].propertyOut = newPropertyId };
-                    }
-                }
-                d.comms = origDevice.comms;
-                d.plan = origDevice.plan;
-                d.configuration.planMode = origDevice.configuration.planMode;
-            }
-        }
+        if (d.configuration.mockDeviceCloneId) { this.cloneDeviceCommsAndPlan(d, d.configuration.mockDeviceCloneId); }
 
         delete d.configuration._deviceList;
         delete d.configuration.mockDeviceCount;
@@ -230,9 +201,11 @@ export class DeviceStore {
                         "direction": "d2c"
                     },
                     "runloop": {
+                        "_ms": 0,
                         "include": false,
                         "unit": "secs",
-                        "value": 15
+                        "value": this.runloop["secs"]["min"],
+                        "valueMax": this.runloop["secs"]["max"]
                     }
                 }
                 break;
@@ -433,16 +406,9 @@ export class DeviceStore {
     }
 
     public stopDevice = (device: Device) => {
-
         if (device.configuration._kind === 'template') { return; }
-
-        try {
-            let rd: MockDevice = this.runners[device._id];
-            if (rd) { rd.stop(); }
-        }
-        catch (err) {
-            console.error("[DEVICE ERR] " + err.message);
-        }
+        let rd: MockDevice = this.runners[device._id];
+        if (rd) { rd.stop(); }
     }
 
     public startAll = () => {
@@ -489,8 +455,22 @@ export class DeviceStore {
     }
 
     public stopAll = () => {
+        let errorCount = 0;
         const devices: Array<Device> = this.store.getAllItems();
-        for (let index in devices) { this.stopDevice(devices[index]); }
+
+        for (let index in devices) {
+            try {
+                this.stopDevice(devices[index]);
+            } catch (err) {
+                errorCount++;
+                console.error(`[ERROR SHUTDOWN DEVICES RUNNER] ${devices[index]._id}`)
+            }
+        }
+
+        if (errorCount === 0) {
+            this.messageService.clearState();
+            this.messageService.sendAsControlPlane({ "__clear": ["DEV", "PROC", "OFF"] });
+        }
     }
 
     public exists = (id: string) => {
@@ -510,6 +490,57 @@ export class DeviceStore {
         for (const index in items) {
             let rd = new MockDevice(items[index], this.messageService);
             this.runners[items[index]._id] = rd;
+        }
+    }
+
+    public reapplyTemplate(templateId: string, deviceList: Array<string>, applyAll: boolean) {
+        const template = this.store.getItem(templateId);
+        if (!template) { return; }
+
+        const devices = this.store.getAllItems();
+        for (let index in devices) {
+            if (!applyAll && deviceList.indexOf(devices[index]._id) === -1) { continue; }
+            if (devices[index].configuration._kind === 'edge' || devices[index].configuration._kind === 'template') { continue; }
+            this.stopDevice(devices[index]);
+            this.cloneDeviceCommsAndPlan(devices[index], templateId);
+          
+            let rd: MockDevice = this.runners[devices[index]._id];
+            if (rd) { rd.updateDevice(devices[index]); }
+        }
+    }
+
+    private cloneDeviceCommsAndPlan(device: Device, cloneId: string) {
+        const origDevice: Device = JSON.parse(JSON.stringify(this.store.getItem(cloneId)));
+        if (Object.keys(origDevice).length != 0) {
+            device.configuration.capabilityUrn = origDevice.configuration.capabilityUrn;
+            for (let i = 0; i < origDevice.comms.length; i++) {
+                let p = origDevice.comms[i];
+                const origPropertyId = p._id;
+                const newPropertyId = uuidV4();
+                p._id = newPropertyId;
+                if (p.mock) { p.mock._id = uuidV4(); }
+
+                for (const property in origDevice.plan.startup) {
+                    if (origDevice.plan.startup[property].property === origPropertyId) { origDevice.plan.startup[property].property = newPropertyId };
+                }
+
+                for (const property in origDevice.plan.timeline) {
+                    if (origDevice.plan.timeline[property].property === origPropertyId) { origDevice.plan.timeline[property].property = newPropertyId };
+                }
+
+                for (const property in origDevice.plan.random) {
+                    if (origDevice.plan.random[property].property === origPropertyId) { origDevice.plan.random[property].property = newPropertyId };
+                }
+
+                for (const property in origDevice.plan.receive) {
+                    if (origDevice.plan.receive[property].propertyIn === origPropertyId) { origDevice.plan.receive[property].propertyIn = newPropertyId };
+                    if (origDevice.plan.receive[property].propertyOut === origPropertyId) { origDevice.plan.receive[property].propertyOut = newPropertyId };
+                }
+            }
+            device.comms = origDevice.comms;
+            device.plan = origDevice.plan;
+            device.configuration.planMode = origDevice.configuration.planMode;
+            device.configuration.mockDeviceCloneId = cloneId;
         }
     }
 }
