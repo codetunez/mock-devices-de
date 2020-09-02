@@ -1,6 +1,6 @@
 {
   "name": "mock-devices-de",
-  "version": "6.1.1",
+  "version": "6.1.2",
   "description": "mock-devices docker edition",
   "main": "./_dist/start.js",
   "repository": {

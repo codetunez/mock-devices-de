@@ -165,7 +165,7 @@ export class DeviceStore {
         }
 
         Object.assign(method, override);
-        d.comms.push(method);
+        d.comms.unshift(method);
 
         this.store.setItem(d, d._id);
         let rd: MockDevice = this.runners[d._id];
@@ -238,7 +238,7 @@ export class DeviceStore {
         property.name = property.name + '_' + crypto.randomBytes(2).toString('hex');
         delete override._id;
         Object.assign(property, override);
-        d.comms.push(property);
+        d.comms.unshift(property);
         this.store.setItem(d, d._id);
         let rd: MockDevice = this.runners[d._id];
         rd.updateDevice(d);
@@ -299,6 +299,7 @@ export class DeviceStore {
             rd.updateDevice(d);
 
             if (d.comms[index]._type != 'property') { return; }
+            if (!sendValue) { return; }
 
             // build a reported payload and honor type
             let json: ValueByIdPayload = <ValueByIdPayload>{};
@@ -503,7 +504,7 @@ export class DeviceStore {
             if (devices[index].configuration._kind === 'edge' || devices[index].configuration._kind === 'template') { continue; }
             this.stopDevice(devices[index]);
             this.cloneDeviceCommsAndPlan(devices[index], templateId);
-      
+
             let rd: MockDevice = this.runners[devices[index]._id];
             if (rd) { rd.updateDevice(devices[index]); }
         }
