@@ -1,5 +1,6 @@
 const isDocker = require('is-docker');
 import * as http from 'http';
+import * as https from 'https';
 import * as express from 'express';
 import * as morgan from 'morgan';
 import * as bodyParser from 'body-parser';
@@ -19,6 +20,8 @@ import { DeviceStore } from './store/deviceStore';
 import { SensorStore } from './store/sensorStore';
 import { SimulationStore } from './store/simulationStore';
 import { ServerSideMessageService } from './core/messageService';
+var path = require('path');
+var pjson = require('../package.json');
 
 class Server {
 
@@ -35,6 +38,8 @@ class Server {
         this.deviceStore = new DeviceStore(ms);
         this.sensorStore = new SensorStore();
         this.simulationStore = new SimulationStore();
+
+        GLOBAL_CONTEXT.LATEST_VERSION = this.latestVersion() === pjson.version;
 
         this.expressServer = express();
         this.expressServer.server = http.createServer(this.expressServer);
@@ -82,6 +87,10 @@ class Server {
         this.expressServer.server.listen(Config.APP_PORT);
         console.log("mock-devices for docker started on: " + this.expressServer.server.address().port);
     }
+
+    async latestVersion() {
+        return await getLatestVersion();
+    }
 }
 
 // handle all uncaught client errors
@@ -91,3 +100,18 @@ process.on('uncaughtException', ((err) => {
 
 // start the application
 new Server().start();
+
+function getLatestVersion() {
+    return new Promise((resolve, reject) => {
+        https.get('https://raw.githubusercontent.com/codetunez/mock-devices/master/package.json', (resp) => {
+            let data = '';
+            resp.on('data', (chunk) => { data += chunk; });
+            resp.on('end', () => {
+                const o = JSON.parse(data);
+                return resolve(o.version);
+            });
+        }).on("error", (err) => {
+            return reject(err);
+        });
+    })
+}

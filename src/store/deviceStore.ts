@@ -48,6 +48,7 @@ export class DeviceStore {
 
     public deleteDevice = (d: Device) => {
         this.store.deleteItem(d._id);
+        this.messageService.removeStatsOrControl(d._id);
     }
 
     public addDeviceModule = (deviceId, moduleId, cloneId): string => {
@@ -142,7 +143,7 @@ export class DeviceStore {
         return newId;
     }
 
-    public addDeviceMethod = (id: string, override: any = {}) => {
+    public addDeviceMethod = (id: string, override: any = {}, insert: boolean) => {
 
         let d: Device = this.store.getItem(id);
         this.stopDevice(d);
@@ -165,15 +166,15 @@ export class DeviceStore {
         }
 
         Object.assign(method, override);
-        d.comms.unshift(method);
+        d.comms[insert ? 'unshift' : 'push'](method);
 
         this.store.setItem(d, d._id);
         let rd: MockDevice = this.runners[d._id];
-        rd.updateDevice(d);
+        rd.updateDevice(d, false);
     }
 
     /* method  !!! unsafe !!! */
-    public addDeviceProperty = (id: string, type: string, override: any = {}): string => {
+    public addDeviceProperty = (id: string, type: string, override: any = {}, insert: boolean): string => {
         let d: Device = this.store.getItem(id);
         let property: Property = null;
         let _id = uuidV4();
@@ -238,10 +239,10 @@ export class DeviceStore {
         property.name = property.name + '_' + crypto.randomBytes(2).toString('hex');
         delete override._id;
         Object.assign(property, override);
-        d.comms.unshift(property);
+        d.comms[insert ? 'unshift' : 'push'](property);
         this.store.setItem(d, d._id);
         let rd: MockDevice = this.runners[d._id];
-        rd.updateDevice(d);
+        rd.updateDevice(d, false);
         return _id;
     }
 
@@ -278,7 +279,7 @@ export class DeviceStore {
     /* method !!! unsafe !!! */
     public restartDevicePlan = (id: string) => {
         let rd: MockDevice = this.runners[id];
-        rd.reconfigDeviceDynamically();
+        rd.reconfigDeviceDynamically(false);
     }
 
     /* method !!! unsafe !!! */
@@ -296,7 +297,7 @@ export class DeviceStore {
 
             // update the copy of the running instance
             let rd: MockDevice = this.runners[d._id];
-            rd.updateDevice(d);
+            rd.updateDevice(d, sendValue);
 
             if (d.comms[index]._type != 'property') { return; }
             if (!sendValue) { return; }
@@ -342,7 +343,7 @@ export class DeviceStore {
         this.store.setItem(d, d._id);
 
         let rd: MockDevice = this.runners[d._id];
-        rd.updateDevice(d);
+        rd.updateDevice(d, false);
     }
 
     /* method modified safe */
@@ -369,7 +370,7 @@ export class DeviceStore {
             this.store.setItem(d, d._id);
 
             let rd: MockDevice = this.runners[d._id];
-            rd.updateDevice(d);
+            rd.updateDevice(d, false);
         }
     }
 
@@ -506,7 +507,7 @@ export class DeviceStore {
             this.cloneDeviceCommsAndPlan(devices[index], templateId);
 
             let rd: MockDevice = this.runners[devices[index]._id];
-            if (rd) { rd.updateDevice(devices[index]); }
+            if (rd) { rd.updateDevice(devices[index], false); }
         }
     }
 
