@@ -47,6 +47,12 @@ export class DeviceStore {
     }
 
     public deleteDevice = (d: Device) => {
+        if (d.configuration.modules) {
+            for (const index in d.configuration.modules) {
+                this.store.deleteItem(d.configuration.modules[index]);
+                this.messageService.removeStatsOrControl(d.configuration.modules[index]);
+            }
+        }
         this.store.deleteItem(d._id);
         this.messageService.removeStatsOrControl(d._id);
     }
@@ -112,8 +118,10 @@ export class DeviceStore {
         let d: Device = this.store.getItem(id);
         let newId: string = type === 'configuration' ? Utils.getDeviceId(payload.connectionString) || payload.deviceId || id : id;
 
-        this.stopDevice(d);
-        delete this.runners[d._id];
+        if (type != undefined && type != 'module') {
+            this.stopDevice(d);
+            delete this.runners[d._id];
+        }
 
         if (id != newId) {
             d._id = newId;
@@ -137,6 +145,7 @@ export class DeviceStore {
 
         this.store.setItem(d, d._id);
 
+        //TODO: needed for modules?
         let md = new MockDevice(d, this.messageService);
         this.runners[d._id] = md;
 
@@ -154,12 +163,12 @@ export class DeviceStore {
             "execution": 'direct',
             "enabled": true,
             "name": "method" + crypto.randomBytes(2).toString('hex'),
-            "color": this.simColors["Color1"],
-            "interface": {
-                "name": "Interface 1",
-                "urn": "urn:interface:device:1"
+            "component": {
+                "enabled": false,
+                "name": "Component"
             },
-            "status": 200,
+            "color": this.simColors["Color1"],
+            "status": "200",
             "receivedParams": null,
             "asProperty": false,
             "payload": JSON.stringify({ "result": "OK" }, null, 2)
@@ -184,12 +193,12 @@ export class DeviceStore {
                     "_id": _id,
                     "_type": "property",
                     "name": "d2cProperty",
+                    "component": {
+                        "enabled": false,
+                        "name": "Component"
+                    },
                     "color": this.simColors["Default"],
                     "enabled": true,
-                    "interface": {
-                        "name": "Interface 1",
-                        "urn": "urn:interface:device:1"
-                    },
                     "string": false,
                     "value": 0,
                     "sdk": "msg",
@@ -216,11 +225,11 @@ export class DeviceStore {
                     "_type": "property",
                     "enabled": true,
                     "name": "c2dProperty",
-                    "color": this.simColors["Color2"],
-                    "interface": {
-                        "name": "Interface 1",
-                        "urn": "urn:interface:device:1"
+                    "component": {
+                        "enabled": false,
+                        "name": "Component"
                     },
+                    "color": this.simColors["Color2"],
                     "string": false,
                     "value": 0,
                     "sdk": "twin",
@@ -397,6 +406,7 @@ export class DeviceStore {
     public startDevice = (device: Device, delay?: number) => {
 
         if (device.configuration._kind === 'template') { return; }
+        if (device.configuration._kind === 'edge') { return; }
 
         try {
             let rd: MockDevice = this.runners[device._id];
@@ -408,7 +418,10 @@ export class DeviceStore {
     }
 
     public stopDevice = (device: Device) => {
+
         if (device.configuration._kind === 'template') { return; }
+        if (device.configuration._kind === 'edge') { return; }
+
         let rd: MockDevice = this.runners[device._id];
         if (rd) { rd.stop(); }
     }
@@ -488,6 +501,7 @@ export class DeviceStore {
     }
 
     public createFromArray = (items: Array<Device>) => {
+        if (!items) { return; }
         this.store.createStoreFromArray(items);
         for (const index in items) {
             let rd = new MockDevice(items[index], this.messageService);
@@ -515,12 +529,14 @@ export class DeviceStore {
         const origDevice: Device = JSON.parse(JSON.stringify(this.store.getItem(cloneId)));
         if (Object.keys(origDevice).length != 0) {
             device.configuration.capabilityUrn = origDevice.configuration.capabilityUrn;
-            for (let i = 0; i < origDevice.comms.length; i++) {
-                let p = origDevice.comms[i];
+
+            const cache = {};
+            for (let p of origDevice.comms) {
                 const origPropertyId = p._id;
                 const newPropertyId = uuidV4();
                 p._id = newPropertyId;
                 if (p.mock) { p.mock._id = uuidV4(); }
+                cache[origPropertyId] = newPropertyId;
 
                 for (const property in origDevice.plan.startup) {
                     if (origDevice.plan.startup[property].property === origPropertyId) { origDevice.plan.startup[property].property = newPropertyId };
@@ -539,6 +555,10 @@ export class DeviceStore {
                     if (origDevice.plan.receive[property].propertyOut === origPropertyId) { origDevice.plan.receive[property].propertyOut = newPropertyId };
                 }
             }
+
+            // second pass required once all old to new ids are known
+            for (let p of origDevice.comms) { if (cache[p.asPropertyId]) { p.asPropertyId = cache[p.asPropertyId]; } }
+
             device.comms = origDevice.comms;
             device.plan = origDevice.plan;
             device.configuration.planMode = origDevice.configuration.planMode;
