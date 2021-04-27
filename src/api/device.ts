@@ -149,6 +149,19 @@ export default function (deviceStore: DeviceStore) {
         res.json({ device: deviceStore.exists(id), devices: deviceStore.getListOfItems() });
     });
 
+    // update the device's configuration. will stop the device. send back state of all devices
+    api.put('/:id/leafDevice', function (req, res, next) {
+        var id = req.params.id;
+        try {
+            deviceStore.updateDevice(id, req.body.payload, 'leafDevice');
+        }
+        catch (msg) {
+            res.status(500).send(msg);
+            return;
+        }
+        res.json({ device: deviceStore.exists(id), devices: deviceStore.getListOfItems() });
+    });
+
     // required?
     api.post('/:id/property/:propertyId/mock/new', function (req, res, next) {
         var id = req.params.id;
@@ -244,6 +257,7 @@ export default function (deviceStore: DeviceStore) {
                 return;
             }
             res.json(deviceStore.getListOfItems());
+            return;
         }
 
         let items = deviceStore.getListOfItems();
@@ -272,9 +286,11 @@ export default function (deviceStore: DeviceStore) {
                 res.status(500).json({ "message": "Device already added" });
                 return;
             }
+
+            const rename = !updatePayload.mockDeviceName ? createId : updatePayload.mockDeviceName === '' ? createId : count > 1 ? updatePayload.mockDeviceName + '-' + (i + 1) : updatePayload.mockDeviceName;
             d._id = createId;
             d.configuration = JSON.parse(JSON.stringify(updatePayload));
-            d.configuration.mockDeviceName = count > 1 ? d.configuration.mockDeviceName + "-" + from : d.configuration.mockDeviceName;
+            d.configuration.mockDeviceName = rename;
             d.configuration.deviceId = createId;
             deviceStore.addDevice(d);
             from++;

@@ -40,20 +40,52 @@ export class SimulationStore {
         },
         "runloop": {
             "secs": {
-                "min": 300,
-                "max": 900
+                "min": 30,
+                "max": 90
             },
             "mins": {
-                "min": 30,
-                "max": 120
+                "min": 5,
+                "max": 60
             }
         },
-        "geo": {
-            "latitude": 51.508009,
-            "longitude": -0.128114,
-            "altitude": 100,
-            "radius": 25000
-        },
+        "geo": [
+            {
+                "latitude": 51.508009,
+                "longitude": -0.128114,
+                "altitude": 100,
+                "radius": 25000
+            }, // London - England
+            {
+                "latitude": 47.608013,
+                "longitude": -122.335167,
+                "altitude": 100,
+                "radius": 30000
+            }, // Seattle - US West Coast
+            {
+                "latitude": 39.8952663456671,
+                "longitude": -169.80377348147474,
+                "altitude": 0,
+                "radius": 1500000
+            }, // Atlantic - Ocean
+            {
+                "latitude": 40.736291221818526,
+                "longitude": -74.17785632140426,
+                "altitude": 100,
+                "radius": 20000
+            }, // Newark - US East Coast
+            {
+                "latitude": 47.37358185559139,
+                "longitude": 8.5511341111357,
+                "altitude": 100,
+                "radius": 90000
+            }, // Zurich - Europe
+            {
+                "latitude": 33.533965950364625,
+                "longitude": -43.060207013303,
+                "altitude": 0,
+                "radius": 1500000
+            }, // Pacific - Ocean
+        ],
         "colors": {
             "Default": "#333",
             "Color1": "#3a1e1e",
@@ -111,13 +143,13 @@ export class SimulationStore {
             "timelineDelay": 5000
         },
         "snippets": {
-            "DTDL": {
+            "DTDLv1": {
                 "value": "DESIRED_VALUE",
                 "ac": 200,
                 "ad": "completed",
                 "av": "DESIRED_VERSION"
             },
-            "IoTC.M3 ": {
+            "DTDLv2": {
                 "value": "DESIRED_VALUE",
                 "status": "completed",
                 "message": "test message",
@@ -135,6 +167,11 @@ export class SimulationStore {
         "dcm": {
             "import": {
                 "interfaceAsComponents": false
+            }
+        },
+        "ux": {
+            "device": {
+                "expandPropertyCard": true
             }
         }
     }
