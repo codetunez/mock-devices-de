@@ -6,9 +6,9 @@ import { SimulationStore } from '../store/simulationStore';
 import { Mqtt as M1, clientFromConnectionString } from 'azure-iot-device-mqtt';
 import { Client, ModuleClient } from 'azure-iot-device';
 import { Message, SharedAccessSignature } from 'azure-iot-device';
-import { ConnectionString } from 'azure-iot-common';
+import { ConnectionString, SharedAccessSignature as CommonSaS, } from 'azure-iot-common';
 
-var Protocol = require('azure-iot-device-mqtt').Mqtt;
+import { Mqtt as Protocol } from 'azure-iot-device-mqtt';
 
 import { Mqtt as MqttDps } from 'azure-iot-provisioning-device-mqtt';
 import { SymmetricKeySecurityClient } from 'azure-iot-security-symmetric-key';
@@ -20,19 +20,19 @@ import * as request from 'request';
 import * as rw from 'random-words';
 import * as Crypto from 'crypto';
 import * as _ from 'lodash';
+import { PlugIn } from '../interfaces/plugin';
+import { Registry } from 'azure-iothub';
+import { over } from 'lodash';
 
-function ignoreKind(kind) {
-    return kind === 'template' || kind === 'edge';
-}
-
-const LOGGING_TAGS = {
+export const LOGGING_TAGS = {
     CTRL: {
         HUB: 'HUB',
         DPS: 'DPS',
         DEV: 'DEV',
         DGT: 'DGT',
         EDG: 'EDG',
-        MOD: 'MOD'
+        MOD: 'MOD',
+        LEA: 'LEA'
     },
     DATA: {
         FNC: 'FNC',
@@ -44,14 +44,15 @@ const LOGGING_TAGS = {
     LOG: {
         OPS: 'PROC',
         EV: {
-            ON: 'ON',
             OFF: 'OFF',
-            INIT: 'INIT',
-            SUCCESS: 'SUCCESS',
-            CONNECTED: 'CONNECTED',
+            WAITING: 'WAITING',
+            DELAY: 'DELAY',
+            ON: 'ON',
             TRYING: 'TRYING',
+            SUCCESS: 'SUCCESS',
+            INIT: 'INIT',
+            CONNECTED: 'CONNECTED',
             ERROR: 'ERROR',
-            DELAY: 'DELAY'
         },
     },
     MSG: {
@@ -87,8 +88,10 @@ const LOGGING_TAGS = {
     }
 }
 
+
 interface IoTHubDevice {
-    client: any;
+    hubName: string;
+    client: Client | ModuleClient;
 }
 
 interface Timers {
@@ -119,6 +122,11 @@ interface Stats {
 
 export class MockDevice {
 
+    /// BETA - remote control
+    private controlled: boolean = false;
+    private previousControlStatus = null;
+    private currentControlStatus = LOGGING_TAGS.LOG.EV.OFF;
+
     private CMD_REBOOT: string;
     private CMD_FIRMWARE: string;
     private CMD_SHUTDOWN: string;
@@ -126,6 +134,9 @@ export class MockDevice {
     private FIRMWARE_LOOP: number;
     private CONNECT_POLL: number;
     private RESTART_LOOP: number;
+
+    private LOOP_MINS: any;
+    private LOOP_SECS: any;
 
     private CONNECT_RESTART: boolean = false;
     private useSasMode = true;
@@ -139,23 +150,33 @@ export class MockDevice {
     private connectionDPSTimer = null;
     private connectionTimer = null;
     private device: Device = null;
-    private iotHubDevice: IoTHubDevice = { client: undefined };
+    private iotHubDevice: IoTHubDevice = { client: undefined, hubName: undefined, };
+
+    // keeps track of current iothub name parent edge device is connected to. needed for modules.
+    private edgeHubName: string = null;
+    private edgeRLTimer = null;
+    private edgeRLPayloadAdditions: {};
+
     private methodRLTimer = null;
     private methodReturnPayload = null;
     private receivedMethodParams = {}
+    private twinDesiredPayloadRead = {};
 
     private twinRLTimer = null;
     private twinRLProps: Array<Property> = [];
     private twinRLPropsPlanValues: Array<Property> = [];
     private twinRLReportedTimers: Array<Timers> = [];
     private twinRLPayloadAdditions: ValueByIdPayload = <ValueByIdPayload>{};
-    private twinDesiredPayloadRead = {};
+    private twinRLStartUp: Array<string> = [];
+    private twinRLStartUpCache: Array<string> = [];
 
     private msgRLTimer = null;
     private msgRLProps: Array<Property> = [];
     private msgRLPropsPlanValues: Array<Property> = [];
     private msgRLReportedTimers: Array<Timers> = [];
     private msgRLPayloadAdditions: ValueByIdPayload = <ValueByIdPayload>{};
+    private msgRLStartUp: Array<string> = [];
+    private msgRLStartUpCache: Array<string> = [];
 
     private desiredMergedCache = {};
     private desiredOverrides: DesiredPayload = <DesiredPayload>{};
@@ -187,14 +208,24 @@ export class MockDevice {
 
     private firstSendMins: string;
 
-    constructor(device: Device, messageService) {
-        if (ignoreKind(device.configuration._kind)) { return; }
+    private plugIn: PlugIn = undefined;
+
+    private datastoreConfigCb = null;
+
+    constructor(device: Device, messageService, plugIn: PlugIn, configUpdateCb: any) {
+        if (device.configuration._kind === 'template') { return; }
         this.messageService = messageService;
+        this.plugIn = plugIn;
+        this.datastoreConfigCb = configUpdateCb;
         this.initialize(device);
     }
 
-    getRunning() {
-        return this.running;
+    getControlStatus() {
+        return this.currentControlStatus;
+    }
+
+    getIoTHubHostname() {
+        return this.iotHubDevice.hubName;
     }
 
     getSecondsFromHours(hours: number) {
@@ -202,11 +233,15 @@ export class MockDevice {
         return Math.ceil(raw);
     }
 
-
-    initialize(device) {
+    // making device any avoids a typing problem
+    initialize(device: any) {
         this.ranges = this.simulationStore.get()['ranges'];
-        this.geo = this.simulationStore.get()['geo'];
-
+        const i = 0;
+        let geoIndex = 0;
+        if (device.configuration.geo) {
+            try { geoIndex = parseInt(device.configuration.geo); } catch { }
+        }
+        this.geo = this.simulationStore.get()['geo'][geoIndex];
         const commands = this.simulationStore.get()['commands'];
         this.CMD_REBOOT = commands['reboot'];
         this.CMD_FIRMWARE = commands['firmware'];
@@ -216,6 +251,10 @@ export class MockDevice {
         this.FIRMWARE_LOOP = simulation['firmware'];
         this.CONNECT_POLL = simulation['connect'];
         const { min, max } = simulation['restart'];
+
+        const runloop = this.simulationStore.get()['runloop'];
+        this.LOOP_MINS = runloop['mins'];
+        this.LOOP_SECS = runloop['secs'];
 
         this.RESTART_LOOP = Utils.getRandomNumberBetweenRange(min, max, true) * 3600000;
         this.sasTokenExpiry = this.getSecondsFromHours(simulation['sasExpire']);
@@ -246,18 +285,40 @@ export class MockDevice {
     // Start of device setup and update code
 
     updateDevice(device: Device, valueOnlyUpdate: boolean) {
-        if (ignoreKind(device.configuration._kind)) { return; }
+        if (device.configuration._kind === 'template') { return; }
         if (this.device != null && this.device.configuration.connectionString != device.configuration.connectionString) {
             this.log('DEVICE/MODULE UPDATE ERROR. CONNECTION STRING HAS CHANGED. DELETE DEVICE', LOGGING_TAGS.CTRL.DEV, LOGGING_TAGS.LOG.OPS);
         } else {
             this.device = Object.assign({}, device);
+            if (this.plugIn) {
+                this.plugIn.configureDevice(this.device.configuration.deviceId, this.running, this.device.configuration, this.updateDeviceConfiguration.bind(this));
+            }
             this.reconfigDeviceDynamically(valueOnlyUpdate);
         }
+    }
+
+    // this is a local change and will not change the datastore copy
+    updateDeviceConfiguration(configuration: any) {
+        this.log(`DEVICE CONFIGURATION UPDATE REQUEST. DEVICE WILL SHUTDOWN AND RESTART AFTER 5 SECS`, LOGGING_TAGS.CTRL.HUB, LOGGING_TAGS.LOG.OPS);
+        setTimeout(() => {
+            this.stop();
+            this.device.configuration = configuration;
+            this.datastoreConfigCb(configuration);
+            setTimeout(() => {
+                this.start(undefined);
+            }, 5000)
+        }, 5000);
+    }
+
+    getRunningStatus() {
+        return this.running;
     }
 
     reconfigDeviceDynamically(valueOnlyUpdate: boolean) {
 
         if (valueOnlyUpdate) { return; }
+
+        this.log('DEVICE/MODULE HAS BEEN CONFIGURED', LOGGING_TAGS.CTRL.DEV, LOGGING_TAGS.LOG.OPS);
         this.logStat(LOGGING_TAGS.STAT.RECONFIGURES);
 
         this.resolversCollection = {
@@ -273,11 +334,15 @@ export class MockDevice {
         this.twinRLPropsPlanValues = [];
         this.twinRLReportedTimers = [];
         this.twinRLMockSensorTimers = {};
+        this.twinRLStartUp = [];
+        this.twinRLStartUpCache = [];
 
         this.msgRLProps = [];
         this.msgRLPropsPlanValues = [];
         this.msgRLReportedTimers = [];
         this.msgRLMockSensorTimers = {};
+        this.msgRLStartUp = [];
+        this.msgRLStartUpCache = [];
 
         this.buildIndexes();
 
@@ -317,31 +382,37 @@ export class MockDevice {
             return;
         }
 
-        this.msgRLProps = [];
-        this.msgRLReportedTimers = [];
-        this.msgRLMockSensorTimers = {};
-
         for (const i in this.device.comms) {
             const comm = this.device.comms[i];
 
             // only twin/msg require the runloop. methods are always on and not part of the runloop
             if (this.device.comms[i]._type != 'property') { continue; }
 
+            // this is a start up event but not a runloop one. treat it differently
+            if (comm.runloop && comm.runloop.onStartUp && !comm.runloop.include) {
+                this.addLoopStartUpComm(comm, !this.running);
+            }
+
             // set up runloop reporting
             if (comm.runloop && comm.runloop.include === true) {
-
                 // Adding for back compat. This will also update the UX for any configuration missing valueMax
                 // This will need an explicit reset bu remove the _ms property to change the time
                 if (!comm.runloop._ms) {
                     if (!comm.runloop.valueMax) { comm.runloop.valueMax = comm.runloop.value; }
-                    const newRunloopValue = Utils.getRandomNumberBetweenRange(comm.runloop.value, comm.runloop.valueMax, true);
+
+                    let newRunloopValue = 0;
+                    if (comm.runloop.override) {
+                        const simLoop = comm.runloop.unit === 'secs' ? this.LOOP_SECS : this.LOOP_MINS;
+                        newRunloopValue = Utils.getRandomNumberBetweenRange(simLoop.min, simLoop.max, true)
+                    } else {
+                        newRunloopValue = Utils.getRandomNumberBetweenRange(comm.runloop.value, comm.runloop.valueMax, true);
+                    }
                     comm.runloop._ms = newRunloopValue * (comm.runloop.unit === 'secs' ? 1000 : 60000);
                 }
 
                 let mockSensorTimerObject = null;
 
                 if (comm.mock) {
-
                     let slice = 0;
                     let startValue = 0;
                     if (comm.mock._type != 'function') {
@@ -362,12 +433,16 @@ export class MockDevice {
                     this.twinRLProps.push(comm);
                     this.twinRLReportedTimers.push({ timeRemain: comm.runloop._ms, originalTime: comm.runloop._ms });
                     if (mockSensorTimerObject != null) { this.twinRLMockSensorTimers[comm._id] = mockSensorTimerObject; }
+                    if (comm.runloop.onStartUp) { this.twinRLStartUpCache.push(comm._id); }
+                    if (comm.runloop.onStartUp && !this.running) { this.twinRLStartUp.push(comm._id); }
                 }
 
                 if (comm.sdk === 'msg') {
                     this.msgRLProps.push(comm);
                     this.msgRLReportedTimers.push({ timeRemain: comm.runloop._ms, originalTime: comm.runloop._ms });
                     if (mockSensorTimerObject != null) { this.msgRLMockSensorTimers[comm._id] = mockSensorTimerObject; }
+                    if (comm.runloop.onStartUp) { this.msgRLStartUpCache.push(comm._id); }
+                    if (comm.runloop.onStartUp && !this.running) { this.msgRLStartUp.push(comm._id); }
                 }
             }
         }
@@ -395,6 +470,22 @@ export class MockDevice {
         })
     }
 
+    addLoopStartUpComm(comm: any, liveUpdate: boolean) {
+        let json: ValueByIdPayload = <ValueByIdPayload>{};
+        let converted = Utils.formatValue(comm.string, comm.value);
+        json[comm._id] = converted;
+        if (comm.sdk === 'twin') {
+            if (comm.runloop.onStartUp) { this.twinRLStartUpCache.push(comm._id); }
+            if (comm.runloop.onStartUp && !this.running) { this.twinRLStartUp.push(comm._id); }
+            if (liveUpdate) { this.updateTwin(json); }
+        }
+        if (comm.sdk === 'msg') {
+            if (comm.runloop.onStartUp) { this.msgRLStartUpCache.push(comm._id); }
+            if (comm.runloop.onStartUp && !this.running) { this.msgRLStartUp.push(comm._id); }
+            if (liveUpdate) { this.updateMsg(json); }
+        }
+    }
+
     // End of device setup and update code
 
     updateTwin(payload: ValueByIdPayload) {
@@ -411,6 +502,10 @@ export class MockDevice {
 
     updateMsg(payload: ValueByIdPayload) {
         Object.assign(this.msgRLPayloadAdditions, payload);
+    }
+
+    updateEdgeModules(payload: any) {
+        this.edgeRLPayloadAdditions = Object.assign({}, payload);
     }
 
     processMockDevicesCMD(name: string) {
@@ -439,9 +534,26 @@ export class MockDevice {
         }
     }
 
+    /// BETA - remote control
+    public releaseControl() { this.controlled = false; }
+    waitForInstruction() {
+        this.log(`DEVICE/MODULE IS BEING ASKED TO WAIT`, LOGGING_TAGS.CTRL.HUB, LOGGING_TAGS.LOG.OPS);
+        this.logCP(LOGGING_TAGS.CTRL.HUB, LOGGING_TAGS.LOG.OPS, LOGGING_TAGS.LOG.EV.WAITING);
+
+        this.controlled = true;
+        let waitTimer = setInterval(() => {
+            if (!this.controlled) {
+                this.log(`MODULE WAIT RELEASED`, LOGGING_TAGS.CTRL.HUB, LOGGING_TAGS.LOG.OPS);
+                clearInterval(waitTimer);
+            }
+        }, 100);
+    }
+    /// BETA - remote control
+
     /// starts a device
-    start(delay) {
-        if (ignoreKind(this.device.configuration._kind)) { return; }
+    start(delay: number, edgeHubName?: string) {
+        if (edgeHubName) { this.edgeHubName = edgeHubName; }
+        if (this.device.configuration._kind === 'template') { return; }
         if (this.delayStartTimer || this.running) { return; }
 
         if (delay) {
@@ -450,6 +562,7 @@ export class MockDevice {
             this.delayStartTimer = setTimeout(() => {
                 this.startDevice();
                 setTimeout(() => {
+                    clearTimeout(this.delayStartTimer);
                     this.delayStartTimer = null;
                 }, 100);
             }, delay);
@@ -463,50 +576,70 @@ export class MockDevice {
 
         this.running = true;
 
-        if (this.device.configuration._kind === 'module') {
+        const { deviceId, moduleId } = Utils.decodeModuleKey(this.device._id);
+        if (moduleId) {
             this.log('MODULE IS SWITCHED ON', LOGGING_TAGS.CTRL.MOD, LOGGING_TAGS.LOG.OPS);
             this.logCP(LOGGING_TAGS.CTRL.DEV, LOGGING_TAGS.LOG.OPS, LOGGING_TAGS.LOG.EV.ON);
             this.logStat(LOGGING_TAGS.STAT.ON);
-            this.iotHubDevice = { client: undefined };
+            this.iotHubDevice = { client: undefined, hubName: undefined };
 
             this.log('MODULE INIT', LOGGING_TAGS.CTRL.MOD, LOGGING_TAGS.LOG.OPS);
             this.logCP(LOGGING_TAGS.CTRL.MOD, LOGGING_TAGS.LOG.OPS, LOGGING_TAGS.LOG.EV.TRYING);
 
-            const { deviceId, moduleId } = Utils.decodeModuleKey(this.device._id);
+            if (this.device.configuration._kind === 'moduleHosted' as string) {
+                if (!GLOBAL_CONTEXT.IOTEDGE_WORKLOADURI && !GLOBAL_CONTEXT.IOTEDGE_DEVICEID && !GLOBAL_CONTEXT.IOTEDGE_MODULEID && !GLOBAL_CONTEXT.IOTEDGE_MODULEGENERATIONID && !GLOBAL_CONTEXT.IOTEDGE_IOTHUBHOSTNAME && !GLOBAL_CONTEXT.IOTEDGE_AUTHSCHEME) {
+                    this.log(`MODULE '${moduleId}' ENVIRONMENT CHECK FAILED - MISSING IOTEDGE_*`, LOGGING_TAGS.CTRL.MOD, LOGGING_TAGS.LOG.OPS);
+                    this.log('MODULE WILL SHUTDOWN', LOGGING_TAGS.CTRL.DEV, LOGGING_TAGS.LOG.OPS);
+                    this.logCP(LOGGING_TAGS.CTRL.MOD, LOGGING_TAGS.LOG.OPS, LOGGING_TAGS.LOG.EV.OFF);
+                    return;
+                }
 
-            if (!GLOBAL_CONTEXT.IOTEDGE_WORKLOADURI && !GLOBAL_CONTEXT.IOTEDGE_DEVICEID && !GLOBAL_CONTEXT.IOTEDGE_MODULEID && !GLOBAL_CONTEXT.IOTEDGE_MODULEGENERATIONID && !GLOBAL_CONTEXT.IOTEDGE_IOTHUBHOSTNAME && !GLOBAL_CONTEXT.IOTEDGE_AUTHSCHEME) {
-                this.log(`MODULE '${moduleId}' ENVIRONMENT CHECK FAILED - MISSING IOTEDGE_*`, LOGGING_TAGS.CTRL.MOD, LOGGING_TAGS.LOG.OPS);
-                this.log('MODULE WILL SHUTDOWN', LOGGING_TAGS.CTRL.DEV, LOGGING_TAGS.LOG.OPS);
-                this.logCP(LOGGING_TAGS.CTRL.MOD, LOGGING_TAGS.LOG.OPS, LOGGING_TAGS.LOG.EV.OFF);
-                return;
+                if (GLOBAL_CONTEXT.IOTEDGE_DEVICEID != deviceId || GLOBAL_CONTEXT.IOTEDGE_MODULEID != moduleId) {
+                    this.log(`MODULE '${moduleId}' DOES NOT MATCH THE MANIFEST CONFIGURATION FOR HOST DEVICE/MODULE (NOT A FAILURE)`, LOGGING_TAGS.CTRL.MOD, LOGGING_TAGS.LOG.OPS);
+                    this.log('MODULE WILL SHUTDOWN', LOGGING_TAGS.CTRL.DEV, LOGGING_TAGS.LOG.OPS);
+                    this.logCP(LOGGING_TAGS.CTRL.MOD, LOGGING_TAGS.LOG.OPS, LOGGING_TAGS.LOG.EV.OFF);
+                    return;
+                }
+
+                try {
+                    this.iotHubDevice.client = await ModuleClient.fromEnvironment(Protocol);
+                    this.log(`MODULE '${moduleId}' CHECK PASSED. ENTERING MAIN LOOP`, LOGGING_TAGS.CTRL.MOD, LOGGING_TAGS.LOG.OPS);
+                    this.logCP(LOGGING_TAGS.CTRL.MOD, LOGGING_TAGS.LOG.OPS, LOGGING_TAGS.LOG.EV.CONNECTED);
+                    this.mainLoop();
+                } catch (err) {
+                    this.log(`MODULE '${moduleId}' FAILED TO CONNECT THROUGH ENVIRONMENT TO IOT HUB: ${err}`, LOGGING_TAGS.CTRL.MOD, LOGGING_TAGS.LOG.OPS);
+                    this.log(`MODULE '${moduleId}' WILL SHUTDOWN`, LOGGING_TAGS.CTRL.DEV, LOGGING_TAGS.LOG.OPS);
+                    this.logCP(LOGGING_TAGS.CTRL.MOD, LOGGING_TAGS.LOG.OPS, LOGGING_TAGS.LOG.EV.OFF);
+                } finally {
+                    // For hosted modules this is all that needs to be done
+                    return;
+                }
             }
 
-            if (GLOBAL_CONTEXT.IOTEDGE_DEVICEID != deviceId || GLOBAL_CONTEXT.IOTEDGE_MODULEID != moduleId) {
-                this.log(`MODULE '${moduleId}' DOES NOT MATCH THE MANIFEST CONFIGURATION FOR HOST DEVICE/MODULE (NOT A FAILURE)`, LOGGING_TAGS.CTRL.MOD, LOGGING_TAGS.LOG.OPS);
-                this.log('MODULE WILL SHUTDOWN', LOGGING_TAGS.CTRL.DEV, LOGGING_TAGS.LOG.OPS);
-                this.logCP(LOGGING_TAGS.CTRL.MOD, LOGGING_TAGS.LOG.OPS, LOGGING_TAGS.LOG.EV.OFF);
-                return;
-            }
-
-            try {
-                this.iotHubDevice.client = await ModuleClient.fromEnvironment(Protocol);
+            if (!this.edgeHubName) {
+                this.log(`MODULE '${moduleId}' CANNOT BE STARTED AS NO KNOWN HUBNAME FOR HOST. EDGE DEVICE PROBABLY FAILED TO START`, LOGGING_TAGS.CTRL.MOD, LOGGING_TAGS.LOG.OPS);
+                this.stop();
+            } else {
+                let transformedSasKey = this.device.configuration.isMasterKey ? this.computeDrivedSymmetricKey(this.device.configuration.gatewaySasKey, this.device.configuration.gatewayDeviceId) : this.device.configuration.gatewaySasKey;
+                const registry = Registry.fromSharedAccessSignature(CommonSaS.create(this.edgeHubName, undefined, transformedSasKey, Date.now()).toString());
+                try {
+                    await registry.getModule(deviceId, moduleId);
+                } catch (e) {
+                    await registry.addModule({ deviceId, moduleId, });
+                }
+                this.iotHubDevice.client = Client.fromConnectionString(`HostName=${this.edgeHubName};DeviceId=${deviceId};SharedAccessKey=${transformedSasKey};ModuleId=${moduleId}`, Protocol);
                 this.log(`MODULE '${moduleId}' CHECK PASSED. ENTERING MAIN LOOP`, LOGGING_TAGS.CTRL.MOD, LOGGING_TAGS.LOG.OPS);
                 this.logCP(LOGGING_TAGS.CTRL.MOD, LOGGING_TAGS.LOG.OPS, LOGGING_TAGS.LOG.EV.CONNECTED);
                 this.mainLoop();
-            } catch (err) {
-                this.log(`MODULE '${moduleId}' FAILED TO CONNECT THROUGH ENVIRONMENT TO IOT HUB: ${err}`, LOGGING_TAGS.CTRL.MOD, LOGGING_TAGS.LOG.OPS);
-                this.log(`MODULE '${moduleId}' WILL SHUTDOWN`, LOGGING_TAGS.CTRL.DEV, LOGGING_TAGS.LOG.OPS);
-                this.logCP(LOGGING_TAGS.CTRL.MOD, LOGGING_TAGS.LOG.OPS, LOGGING_TAGS.LOG.EV.OFF);
-                return;
             }
-            return // needed
+            return;
         }
 
         this.log('DEVICE IS SWITCHED ON', LOGGING_TAGS.CTRL.DEV, LOGGING_TAGS.LOG.OPS);
         this.logCP(LOGGING_TAGS.CTRL.DEV, LOGGING_TAGS.LOG.OPS, LOGGING_TAGS.LOG.EV.ON);
         this.logStat(LOGGING_TAGS.STAT.ON);
 
-        if (this.device.configuration._kind === 'dps') {
+        if (this.device.configuration._kind === 'dps' || this.device.configuration._kind === 'edge' || this.device.configuration._kind === 'leafDevice') {
             const simulation = this.simulationStore.get()['simulation'];
             this.dpsRetires = simulation['dpsRetries'] || 10;
             this.registrationConnectionString = null;
@@ -514,12 +647,14 @@ export class MockDevice {
             this.connectionDPSTimer = setInterval(() => {
                 if (this.registrationConnectionString != null && this.registrationConnectionString != 'init') {
                     clearInterval(this.connectionDPSTimer);
+                    this.connectionDPSTimer = null;
                     this.connectLoop(this.registrationConnectionString);
                     return;
                 }
 
                 if (this.dpsRetires <= 0) {
                     clearInterval(this.connectionDPSTimer);
+                    this.connectionDPSTimer = null;
                     this.stop();
                     this.logStat(LOGGING_TAGS.STAT.ERRORS);
                     return;
@@ -539,6 +674,11 @@ export class MockDevice {
         this.log('IOT HUB INITIAL CONNECT START', LOGGING_TAGS.CTRL.HUB, LOGGING_TAGS.LOG.OPS);
         this.logCP(LOGGING_TAGS.CTRL.HUB, LOGGING_TAGS.LOG.OPS, LOGGING_TAGS.LOG.EV.INIT);
         this.connectClient(connectionString);
+        if (this.plugIn) {
+            this.plugIn.postConnect(this.device.configuration.deviceId);
+            this.log(`DEVICE/MODULE IS USING A PLUGIN`, LOGGING_TAGS.CTRL.DEV, LOGGING_TAGS.LOG.OPS);
+        }
+        this.reportModuleStatus({}, "start");
         this.mainLoop();
         this.connectionTimer = setInterval(() => {
             this.log('IOT HUB RECONNECT LOOP START', LOGGING_TAGS.CTRL.HUB, LOGGING_TAGS.LOG.OPS);
@@ -552,7 +692,7 @@ export class MockDevice {
         }, this.RESTART_LOOP)
     }
 
-    stop() {
+    async stop() {
         if (this.delayStartTimer) {
             clearTimeout(this.delayStartTimer);
             this.delayStartTimer = null;
@@ -565,8 +705,10 @@ export class MockDevice {
                 this.log('DEVICE WILL SHUTDOWN', LOGGING_TAGS.CTRL.DEV, LOGGING_TAGS.LOG.OPS);
             }
         }
+        await this.reportModuleStatus(this.edgeRLPayloadAdditions, "stop");
         this.logCP(LOGGING_TAGS.CTRL.DEV, LOGGING_TAGS.LOG.OPS, LOGGING_TAGS.LOG.EV.OFF);
         if (!this.running) { return; }
+        if (this.plugIn) { this.plugIn.stopDevice(this.device.configuration.deviceId); }
         this.final();
     }
 
@@ -577,6 +719,7 @@ export class MockDevice {
     }
 
     cleanUp() {
+        clearInterval(this.edgeRLTimer);
         clearInterval(this.twinRLTimer);
         clearInterval(this.msgRLTimer);
         clearInterval(this.methodRLTimer);
@@ -586,6 +729,7 @@ export class MockDevice {
                 this.iotHubDevice.client.removeAllListeners();
                 this.iotHubDevice.client.close();
                 this.iotHubDevice.client = null;
+                this.iotHubDevice.hubName = undefined;
             }
         } catch (err) {
             this.log(`DEVICE/MODULE CLIENT TEARDOWN ERROR: ${err.message}`, LOGGING_TAGS.CTRL.DEV, LOGGING_TAGS.LOG.OPS);
@@ -599,15 +743,34 @@ export class MockDevice {
     mainLoop() {
         if (!this.running) { return; }
         try {
-            this.iotHubDevice.client.open(() => {
-                this.registerDirectMethods();
-                this.registerC2D();
+            this.iotHubDevice.client.open(async () => {
+                this.log(`IOT HUB ${this.device.configuration._kind === 'module' ? 'MODULE' : ''} CLIENT CONNECTED`, LOGGING_TAGS.CTRL.HUB, LOGGING_TAGS.LOG.OPS);
 
-                this.log('IOT HUB CLIENT CONNECTED', LOGGING_TAGS.CTRL.HUB, LOGGING_TAGS.LOG.OPS);
+                this.registerDirectMethods();
+                if (this.device.configuration._kind !== 'module') {
+                    this.registerC2D();
+                }
+
                 this.log(this.device.configuration.planMode ? 'PLAN MODE' : 'INTERACTIVE MODE', LOGGING_TAGS.CTRL.HUB, LOGGING_TAGS.LOG.OPS);
                 this.logCP(LOGGING_TAGS.CTRL.HUB, LOGGING_TAGS.LOG.OPS, LOGGING_TAGS.LOG.EV.CONNECTED);
 
+                // if we have startup events, ensure these get sent at start up again
+                this.twinRLStartUp = this.twinRLStartUpCache.slice();
+                this.msgRLStartUp = this.msgRLStartUpCache.slice();
+
+                // have to scan through everything because we don't know what is twin or msg startup
+                for (const i in this.device.comms) {
+                    if (this.device.comms[i].runloop && this.device.comms[i].runloop.onStartUp && !this.device.comms[i].runloop.include) {
+                        this.addLoopStartUpComm(this.device.comms[i], true);
+                    }
+                }
+
                 this.iotHubDevice.client.getTwin((err, twin) => {
+
+                    if (err) {
+                        this.log('IOT HUB TWIN REQUEST FAILED. CLIENT IN BAD STATE', LOGGING_TAGS.CTRL.HUB, LOGGING_TAGS.LOG.OPS);
+                        this.stop();
+                    }
 
                     // desired properties are cached
                     twin.on('properties.desired', ((delta) => {
@@ -642,22 +805,31 @@ export class MockDevice {
 
                     // reported properties are cleared every runloop cycle
                     this.twinRLTimer = setInterval(() => {
-                        let payload: ValueByIdPayload = <ValueByIdPayload>this.calcPropertyValues(this.twinRLProps, this.twinRLReportedTimers, this.twinRLMockSensorTimers, this.twinRLPropsPlanValues);
+                        let payload: ValueByIdPayload = <ValueByIdPayload>this.calcPropertyValues(this.twinRLProps, this.twinRLReportedTimers, this.twinRLMockSensorTimers, this.twinRLPropsPlanValues, this.twinRLStartUp);
                         this.runloopTwin(this.twinRLPayloadAdditions, payload, twin);
                         this.twinRLPayloadAdditions = <ValueByIdPayload>{};
+                        this.twinRLStartUp = [];
                     }, 1000);
                 })
 
                 this.msgRLTimer = setInterval(() => {
                     let payload: ValueByIdPayload = null;
-                    payload = <ValueByIdPayload>this.calcPropertyValues(this.msgRLProps, this.msgRLReportedTimers, this.msgRLMockSensorTimers, this.msgRLPropsPlanValues);
+                    payload = <ValueByIdPayload>this.calcPropertyValues(this.msgRLProps, this.msgRLReportedTimers, this.msgRLMockSensorTimers, this.msgRLPropsPlanValues, this.msgRLStartUp);
                     this.runloopMsg(this.msgRLPayloadAdditions, payload);
                     this.msgRLPayloadAdditions = <ValueByIdPayload>{};
+                    this.msgRLStartUp = [];
                 }, 1000);
 
+                // for edge, also create a loop to periodically notify module status
+                if (this.device.configuration._kind === 'edge') {
+                    this.edgeRLTimer = setInterval(() => {
+                        this.reportModuleStatus(this.edgeRLPayloadAdditions);
+                    }, 30000);
+                }
             })
         }
         catch (err) {
+            // this is a legacy SDK bug workaround. 99% sure it can go
             this.log(`SDK OPEN ERROR (CHECK CONN STRING): ${err.message}`, LOGGING_TAGS.CTRL.HUB, LOGGING_TAGS.LOG.OPS);
             this.logCP(LOGGING_TAGS.CTRL.HUB, LOGGING_TAGS.LOG.OPS, LOGGING_TAGS.LOG.EV.ERROR);
             setTimeout(() => {
@@ -756,7 +928,6 @@ export class MockDevice {
                 if (p[send].sdk === 'twin') { this.updateTwin(json); }
                 if (p[send].sdk === 'msg') { this.updateMsg(json); }
             }
-
         } else if (!this.device.configuration.planMode && method.asProperty) {
             this.methodReturnPayload = Object.assign({}, { [method.name]: method.payload })
         }
@@ -802,15 +973,15 @@ export class MockDevice {
     }
 
     registerDirectMethods() {
-
         for (const key in this.resolversCollection.nameDmToCommIndex) {
-            const clientMethodKey = this.device.configuration._kind === 'module' ? 'onMethod' : 'onDeviceMethod';
+            const clientMethodKey = this.iotHubDevice.client['onDeviceMethod'] ? 'onDeviceMethod' : 'onMethod';
             this.iotHubDevice.client[clientMethodKey](key, (request, response) => {
                 const method: Method = this.device.comms[this.resolversCollection.nameDmToCommIndex[key]];
                 const methodPayload = JSON.parse(method.payload || {});
+                const requestPayload = request.payload;
 
-                this.log(`${request.methodName} : ${request.payload ? JSON.stringify(request.payload) : '<NO PAYLOAD>'}`, LOGGING_TAGS.CTRL.HUB, LOGGING_TAGS.DATA.METH, LOGGING_TAGS.DATA.RECV, 'DIRECT METHOD REQUEST AND PAYLOAD');
-                Object.assign(this.receivedMethodParams, { [method._id]: { date: new Date().toUTCString(), payload: request.payload } });
+                this.log(`${request.methodName} : ${requestPayload ? JSON.stringify(requestPayload) : '<NO PAYLOAD>'}`, LOGGING_TAGS.CTRL.HUB, LOGGING_TAGS.DATA.METH, LOGGING_TAGS.DATA.RECV, 'DIRECT METHOD REQUEST AND PAYLOAD');
+                Object.assign(this.receivedMethodParams, { [method._id]: { date: new Date().toUTCString(), payload: requestPayload } });
 
                 // this response is the payload of the device
                 response.send((parseInt(method.status)), methodPayload, (err) => {
@@ -818,44 +989,58 @@ export class MockDevice {
                     this.logStat(LOGGING_TAGS.STAT.COMMANDS);
                     this.messageService.sendAsLiveUpdate(this.device._id, { [method._id]: new Date().toUTCString() });
 
-                    this.sendMethodResponse(method);
+                    let res = null;
+                    if (this.plugIn) {
+                        try {
+                            res = this.plugIn.commandResponse(this.device.configuration.deviceId, method, requestPayload);
+                        } catch (err) {
+                            this.log(err ? err.toString() : 'PLUGIN COMMAND RESPONSE ERROR', LOGGING_TAGS.CTRL.HUB, LOGGING_TAGS.DATA.METH, LOGGING_TAGS.DATA.SEND);
+                        }
+                    }
+
+                    if (res === undefined) {
+                        this.sendMethodResponse(method);
+                    }
                 })
             });
         }
     }
 
-    async connectClient(connectionString) {
-        this.iotHubDevice = { client: undefined };
+    // EDGE
+    connectClient(connectionString) {
+        this.iotHubDevice = { client: undefined, hubName: undefined };
 
         if (this.useSasMode) {
             const cn = ConnectionString.parse(connectionString);
 
             let sas: any = SharedAccessSignature.create(cn.HostName, cn.DeviceId, cn.SharedAccessKey, this.sasTokenExpiry);
             this.iotHubDevice.client = Client.fromSharedAccessSignature(sas, M1);
+            this.iotHubDevice.hubName = cn.HostName;
 
             const trueHours = Math.ceil((this.sasTokenExpiry - Math.round(Date.now() / 1000)) / 3600);
             this.log(`CONNECTING VIA SAS.TOKEN EXPIRES AFTER ${trueHours} HOURS`, LOGGING_TAGS.CTRL.HUB, LOGGING_TAGS.LOG.OPS);
         } else {
-            // get a connection string from the RP in the Portal            
+            // get a connection string from the RP in the Portal
             this.iotHubDevice.client = clientFromConnectionString(connectionString);
+            // store hub name
+            this.iotHubDevice.hubName = ConnectionString.parse(connectionString).HostName;
             this.log(`CONNECTING VIA CONN STRING`, LOGGING_TAGS.CTRL.HUB, LOGGING_TAGS.LOG.OPS);
         }
         this.logStat(LOGGING_TAGS.STAT.CONNECTS);
         this.log(`DEVICE/MODULE AUTO RESTARTS EVERY ${this.RESTART_LOOP / 60000} MINUTES`, LOGGING_TAGS.CTRL.HUB, LOGGING_TAGS.LOG.OPS);
     }
 
+    // EDGE
     dpsRegistration() {
-
         if (this.registrationConnectionString === 'init') { return; }
         if (this.dpsRetires === 0) { return; }
 
         let config = this.device.configuration;
-        this.iotHubDevice = { client: undefined };
+        this.iotHubDevice = { client: undefined, hubName: undefined };
         this.registrationConnectionString = 'init';
 
         let transformedSasKey = config.isMasterKey ? this.computeDrivedSymmetricKey(config.sasKey, config.deviceId) : config.sasKey;
 
-        // this provides back compat for all pre 5.3 state files
         let dpsPayload = {};
         if (config.dpsPayload) {
             try {
@@ -870,18 +1055,22 @@ export class MockDevice {
         let provisioningClient = ProvisioningDeviceClient.create('global.azure-devices-provisioning.net', config.scopeId, new MqttDps(), provisioningSecurityClient);
 
         provisioningClient.setProvisioningPayload(dpsPayload);
+        this.log('CONNECTING TO ' + config.scopeId, LOGGING_TAGS.CTRL.DPS, LOGGING_TAGS.LOG.OPS);
         this.log('WAITING FOR REGISTRATION', LOGGING_TAGS.CTRL.DPS, LOGGING_TAGS.LOG.OPS);
         this.logCP(LOGGING_TAGS.CTRL.DPS, LOGGING_TAGS.LOG.OPS, LOGGING_TAGS.LOG.EV.TRYING);
         provisioningClient.register((err: any, result) => {
             if (err) {
-                let msg = err.result && err.result.registrationState && err.result.registrationState.errorMessage || err;
-                this.log(`REGISTRATION ERROR ${this.dpsRetires}: ${err}`, LOGGING_TAGS.CTRL.DPS, LOGGING_TAGS.LOG.OPS);
+                let msg = (err.result && err.result.registrationState && err.result.registrationState.errorMessage) || err;
+                this.log(`REGISTRATION ERROR ${this.dpsRetires}: ${msg}`, LOGGING_TAGS.CTRL.DPS, LOGGING_TAGS.LOG.OPS);
                 this.logCP(LOGGING_TAGS.CTRL.DPS, LOGGING_TAGS.LOG.OPS, LOGGING_TAGS.LOG.EV.ERROR);
                 this.registrationConnectionString = null;
                 this.dpsRetires--;
                 return;
             }
             this.registrationConnectionString = 'HostName=' + result.assignedHub + ';DeviceId=' + result.deviceId + ';SharedAccessKey=' + transformedSasKey;
+            if (this.device.configuration._kind === 'leafDevice') {
+                this.registrationConnectionString += `;GatewayId=${this.device.configuration.gatewayDeviceId}`;
+            }
             this.log('DEVICE REGISTRATION SUCCESS', LOGGING_TAGS.CTRL.DPS, LOGGING_TAGS.LOG.OPS);
             this.logCP(LOGGING_TAGS.CTRL.DPS, LOGGING_TAGS.LOG.OPS, LOGGING_TAGS.LOG.EV.SUCCESS);
             this.logStat(LOGGING_TAGS.STAT.DPS);
@@ -913,12 +1102,16 @@ export class MockDevice {
                     }
                     // the small setTimeout here is to ease a little spamming
                     setTimeout(() => {
+                        if (!this.iotHubDevice.client) {
+                            this.log('CLIENT HAS ALREADY CLOSED. ABANDONING MSG', LOGGING_TAGS.CTRL.HUB, LOGGING_TAGS.MSG.TWIN, LOGGING_TAGS.DATA.SEND);
+                            return;
+                        }
                         twin.properties.reported.update(data, ((err) => {
                             this.log(JSON.stringify(data), LOGGING_TAGS.CTRL.HUB, LOGGING_TAGS.MSG.TWIN, LOGGING_TAGS.DATA.SEND, sub);
                             this.logStat(LOGGING_TAGS.STAT.TWIN.COUNT);
                             this.messageService.sendAsLiveUpdate(this.device._id, transformed.live);
                         }))
-                    }, 500);
+                    }, 250);
                 }
             }
         }
@@ -926,7 +1119,6 @@ export class MockDevice {
 
     /// runs the device
     async runloopMsg(additions: ValueByIdPayload, payload) {
-
         if (payload != null) {
             Object.assign(payload, additions);
 
@@ -941,18 +1133,60 @@ export class MockDevice {
                     if (c != "_root") { msg.properties.add('$.sub', c); sub = c; }
                     // the small setTimeout here is to ease a little spamming
                     setTimeout(() => {
+                        if (!this.iotHubDevice.client) {
+                            this.log('CLIENT HAS ALREADY CLOSED. ABANDONING MSG', LOGGING_TAGS.CTRL.HUB, LOGGING_TAGS.MSG.MSG, LOGGING_TAGS.DATA.SEND);
+                            return;
+                        }
                         this.iotHubDevice.client.sendEvent(msg, ((err) => {
-                            this.log(JSON.stringify(transformed.legacy), LOGGING_TAGS.CTRL.HUB, LOGGING_TAGS.MSG.MSG, LOGGING_TAGS.DATA.SEND, sub);
+                            this.log(data, LOGGING_TAGS.CTRL.HUB, LOGGING_TAGS.MSG.MSG, LOGGING_TAGS.DATA.SEND, sub);
                             this.logStat(LOGGING_TAGS.STAT.MSG.COUNT);
                             this.messageService.sendAsLiveUpdate(this.device._id, transformed.live);
                         }))
-                    }, 500);
+                    }, 250);
                 }
             }
         }
     }
 
-    calcPropertyValues(runloopProperties: any, runloopTimers: any, propertySensorTimers: any, runloopPropertiesValues: any) {
+    async reportModuleStatus(additions: any, override?: string) {
+
+        if (this.device.configuration._kind !== 'edge') { return; }
+
+        const Agent_Running = 'running';
+        const Agent_Stopped = 'stopped';
+
+        let transformedSasKey = this.device.configuration.isMasterKey ? this.computeDrivedSymmetricKey(this.device.configuration.sasKey, this.device.configuration.deviceId) : this.device.configuration.sasKey;
+        const edgeAgentClient = Client.fromConnectionString(`HostName=${this.iotHubDevice.hubName};DeviceId=${this.device.configuration.deviceId};SharedAccessKey=${transformedSasKey};ModuleId=$edgeAgent`, Protocol);
+
+        try {
+            await edgeAgentClient.open();
+            const edgeAgentTwin = await edgeAgentClient.getTwin();
+
+            const modules = {};
+            for (const module in additions) {
+                const modState = override && override === 'start' ? Agent_Running : override && override === 'stop' ? Agent_Stopped : additions[module] ? Agent_Running : Agent_Stopped;
+                modules[module] = { runtimeStatus: modState };
+            }
+
+            const sysState = override && override === 'start' ? Agent_Running : override && override === 'stop' ? Agent_Stopped : this.running ? Agent_Running : Agent_Stopped;
+            await edgeAgentTwin.properties.reported.update({
+                systemModules: {
+                    edgeAgent: { runtimeStatus: sysState },
+                    edgeHub: { runtimeStatus: sysState },
+                },
+                modules
+            });
+
+        } catch (err) {
+            if (this.running) {
+                this.log('CANNOT UPDATE MODULES STATUS. EDGE DEVICE SHOULD BE RESTARTED', LOGGING_TAGS.CTRL.EDG, LOGGING_TAGS.LOG.EV.ERROR);
+            }
+        } finally {
+            await edgeAgentClient.close();
+        }
+    }
+
+    calcPropertyValues(runloopProperties: any, runloopTimers: any, propertySensorTimers: any, runloopPropertiesValues: any, startUpList: Array<string>) {
         if (this.iotHubDevice === null || this.iotHubDevice.client === null) {
             clearInterval(this.msgRLTimer);
             return null;
@@ -966,7 +1200,7 @@ export class MockDevice {
             let p: Property = runloopProperties[i];
             let { timeRemain, originalTime } = runloopTimers[i]
             let possibleResetTime = runloopTimers[runloopTimers.length - 1].timeRemain + originalTime;
-            let res = this.processCountdown(p, timeRemain, possibleResetTime);
+            let res = this.processCountdown(p, timeRemain, possibleResetTime, startUpList);
             runloopTimers[i] = { 'timeRemain': res.timeRemain, originalTime };
 
             // for plan mode we send regardless of enabled or not
@@ -1081,7 +1315,7 @@ export class MockDevice {
         })
     }
 
-    processCountdown(p: Property, timeRemain, originalPlanTime) {
+    processCountdown(p: Property, timeRemain, originalPlanTime, startUpList: Array<string>) {
 
         let res: any = {};
 
@@ -1089,6 +1323,13 @@ export class MockDevice {
         if (timeRemain != 0) {
             timeRemain = timeRemain - 1000;
             res.process = false;
+
+            // if this is a start up event then send the value regardless of time remain
+            if (startUpList.indexOf(p._id) > -1) {
+                res.timeRemain = timeRemain;
+                res.process = true;
+                return res;
+            }
         }
 
         // reset and process
@@ -1119,6 +1360,18 @@ export class MockDevice {
                 var component = p.component && p.component.enabled ? p.component.name : null;
                 if (component && !remap.package[component]) { remap.package[component] = {} }
                 if (!component && !remap.package["_root"]) { remap.package["_root"] = {} }
+
+                if (this.plugIn) {
+                    const val = p.propertyObject.type === 'templated' ? JSON.parse(p.propertyObject.template) : payload[p._id];
+                    const res = this.plugIn.propertyResponse(this.device.configuration.deviceId, p, val);
+
+                    if (res !== undefined) {
+                        remap.legacy[p.name] = res;
+                        remap.live[p._id] = res;
+                        remap.package[component ? component : '_root'][p.name] = res;
+                        continue;
+                    }
+                }
 
                 /* REFACTOR: this concept does not scale well. desired and reported for a setting
                    are separate items in the array therefore there is no concept of version when the event
@@ -1158,7 +1411,6 @@ export class MockDevice {
                     remap.legacy[p.name] = resolve;
                     remap.live[p._id] = resolve;
                     remap.package[component ? component : '_root'][p.name] = resolve;
-                    break;
                 }
             } else {
                 //TODO: deprecate?
@@ -1225,12 +1477,12 @@ export class MockDevice {
     }
 
     logCP(type, operation, event) {
+        this.previousControlStatus = this.currentControlStatus;
         this.messageService.sendAsControlPlane({ [this.device._id]: [type, operation, event] });
+        this.currentControlStatus = event;
     }
 
     logStat(type) {
-        if (ignoreKind(this.device.configuration._kind)) { return; }
-
         const parts = type.split('_');
         const update = parts.length === 2 ? parts[0] : 'METER';
         const date = new Date().toISOString();

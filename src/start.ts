@@ -16,6 +16,8 @@ import semantics from './api/simulation';
 import template from './api/template';
 import connect from './api/connect';
 import dtdl from './api/dtdl';
+import plugins from './api/plugins';
+import bulk from './api/bulk';
 
 import { Config, GLOBAL_CONTEXT } from './config';
 import { DtdlStore } from './store/dtdlStore';
@@ -23,6 +25,10 @@ import { DeviceStore } from './store/deviceStore';
 import { SensorStore } from './store/sensorStore';
 import { SimulationStore } from './store/simulationStore';
 import { ServerSideMessageService } from './core/messageService';
+
+import * as PlugIns from './plugins';
+
+var path = require('path');
 
 class Server {
 
@@ -32,12 +38,18 @@ class Server {
     private sensorStore: SensorStore;
     private simulationStore: SimulationStore;
     private dtdlStore: DtdlStore;
+    private plugIns: any = {};
 
     public start = () => {
 
+        for (const p in PlugIns) {
+            this.plugIns[p] = new PlugIns[p];
+            this.plugIns[p].initialize();
+        }
+
         const ms = new ServerSideMessageService();
 
-        this.deviceStore = new DeviceStore(ms);
+        this.deviceStore = new DeviceStore(ms, this.plugIns);
         this.sensorStore = new SensorStore();
         this.simulationStore = new SimulationStore();
         this.dtdlStore = new DtdlStore();
@@ -68,6 +80,8 @@ class Server {
         this.expressServer.use('/api/sensors', sensors(this.sensorStore));
         this.expressServer.use('/api/template', template(this.deviceStore));
         this.expressServer.use('/api/dtdl', dtdl(this.dtdlStore));
+        this.expressServer.use('/api/plugins', plugins(this.plugIns));
+        this.expressServer.use('/api/bulk', bulk(this.deviceStore));
         this.expressServer.use('/api', root(GLOBAL_CONTEXT, ms));
 
         // experimental stream api

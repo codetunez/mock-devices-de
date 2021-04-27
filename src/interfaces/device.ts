@@ -14,6 +14,8 @@ export interface RunLoop {
     unit: 'secs' | 'mins';
     value: number;
     valueMax: number;
+    onStartUp?: boolean;
+    override?: boolean
 }
 
 export interface MockSensor {
@@ -32,6 +34,7 @@ export interface MockSensor {
 export interface Property {
     _id: string;
     _type: "property";
+    _matchedId?: string;
     name: string;
     enabled: boolean;
     component: Component;
@@ -91,6 +94,7 @@ export class Device {
     public configuration: DeviceConfiguration;
     public comms: Array<any>;
     public plan: Plan;
+    public plugin: string;
 
     constructor() {
         this.comms = new Array<any>();
@@ -99,8 +103,10 @@ export class Device {
 }
 
 export class DeviceConfiguration {
-    public _kind: 'dps' | 'hub' | 'template' | 'edge' | 'module';
+    public _kind: 'dps' | 'hub' | 'template' | 'edge' | 'module' | 'moduleHosted' | 'leafDevice';
     public _deviceList?: [];
+    public _plugIns?: [];
+    public _modules?: [];
     public deviceId?: string;
     public devices?: [];
     public mockDeviceName?: string;
@@ -118,5 +124,13 @@ export class DeviceConfiguration {
     public machineStateClipboard?: string;
     public planMode?: boolean;
     public modules?: Array<string> = [];
+    public modulesDocker?: any;
+    public leafDevices?: Array<string> = [];
     public centralAdded?: boolean;
+    public plugIn?: string;
+    public geo?: number;
+    public gatewayId?: string;
+    public gatewayDeviceId?: string;
+    public gatewayScopeId?: string;
+    public gatewaySasKey?: string;
 }

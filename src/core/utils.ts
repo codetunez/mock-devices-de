@@ -26,18 +26,27 @@ export function isNumeric(n) {
     return !isNaN(parseFloat(n)) && isFinite(n);
 }
 
+export function isObject(o) {
+    return (typeof o === "object" || typeof o === 'function') && (o !== null);
+}
+
 // create a string or non string value for a object property value
 export function formatValue(asString: boolean, value: any) {
-    if (asString === false && (value.toString().toLowerCase() === "true" || value.toString().toLowerCase() === "false")) {
-        return (value.toString().toLowerCase() === "true");
-    } else if (asString === true) {
-        return value.toString();
-    } else {
-        let res = parseFloat(value);
-        if (!isNumeric(res)) {
-            res = value.toString();
+    try {
+        if (asString === false && (value.toString().toLowerCase() === "true" || value.toString().toLowerCase() === "false")) {
+            return (value.toString().toLowerCase() === "true");
+        } else if (asString === true) {
+            return value.toString();
+        } else {
+            let res = parseFloat(value);
+            if (!isNumeric(res)) {
+                res = value.toString();
+            }
+            return res;
         }
-        return res;
+    }
+    catch {
+        return null
     }
 }
 
@@ -88,7 +97,7 @@ export function getRandomGeo(lat?: number, long?: number, alt?: number, radius?:
 export function decodeModuleKey(key: string): any {
     const r = new RegExp(`\<(.*)\>(.*)?`)
     const m = key.match(r);
-    if (!m && m.length != 3) { return key; }
+    if (!m || m.length != 3) { return key; }
     return { deviceId: m[1], moduleId: m[2] };
 }
 
